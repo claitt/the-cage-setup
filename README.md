@@ -160,6 +160,19 @@ installer patched is left untouched (it is assumed to be intentional).
 
 ## Troubleshooting
 
+**Double-clicking `Cage Setup.cmd` does nothing.**
+The launcher asks Windows for administrator rights and then opens the GUI; if
+the UAC prompt is cancelled nothing happens. Run it again and choose **Yes**.
+To see the actual error, open a command prompt in this folder and run:
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File "Cage Setup.ps1"
+```
+
+Note that double-clicking **`Cage Setup.ps1` directly does not start it**:
+Windows opens `.ps1` files in an editor. Always use `Cage Setup.cmd`, and keep
+the two files in the same folder.
+
 **The MuMu window stays hidden for a long time.**
 The silent installation hides MuMu's own windows. If no progress is detected for
 4 minutes the installer kills the setup and retries once with the window visible.
