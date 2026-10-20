@@ -1696,6 +1696,11 @@ $form.BackColor = $Script:Back
 $form.ForeColor = $Script:TextMain
 $form.Font = New-Object Drawing.Font('Segoe UI', 9)
 
+# Packed as an executable: use the icon embedded in CageSetup.exe.
+if ($HostExe -and (Split-Path -Leaf $HostExe) -notmatch '^(powershell|pwsh)(_ise)?\.exe$') {
+    try { $form.Icon = [Drawing.Icon]::ExtractAssociatedIcon($HostExe) } catch { }
+}
+
 $title = New-Object System.Windows.Forms.Label
 $title.Text = 'CAGE SETUP'
 $title.Font = New-Object Drawing.Font('Segoe UI', 16, [Drawing.FontStyle]::Bold)
