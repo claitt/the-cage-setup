@@ -28,16 +28,24 @@ jobs:
       - name: Check out the source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Work out the version
+      - name: Read the version from the script
         id: version
         shell: pwsh
         run: |
-          $version = '0.0.0'
+          # The script is the single source of truth: a tag that does not match
+          # would publish an executable with a different version inside.
+          $source = Get-Content -Raw 'Cage Setup.ps1'
+          $match = [regex]::Match($source, '(?m)^\$Script:AppVersion = ''(\d+\.\d+\.\d+)''')
+          if (-not $match.Success) { throw 'Cannot find $Script:AppVersion in Cage Setup.ps1' }
+          $version = $match.Groups[1].Value
           if ($env:GITHUB_REF -like 'refs/tags/v*') {
-            $version = $env:GITHUB_REF_NAME.Substring(1)
+            $tag = $env:GITHUB_REF_NAME.Substring(1)
+            if ($tag -ne $version) {
+              throw "Tag v$tag does not match `$Script:AppVersion = '$version'"
+            }
           }
-          if ($version -notmatch '^\d+\.\d+\.\d+$') { $version = '0.0.0' }
           "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $version"
 
       - name: Check that the script parses
         shell: powershell
@@ -116,6 +124,11 @@ jobs:
           }
           if ($output -notmatch '=== CAGE SETUP - diagnostics ===') {
             Write-Host 'The diagnostics marker was not found in the output.'
+            Write-Host $output
+            exit 1
+          }
+          if ($output -notmatch "Version\s+:\s+$([regex]::Escape('${{ steps.version.outputs.version }}'))") {
+            Write-Host 'The executable reports a different version than the script.'
             Write-Host $output
             exit 1
           }

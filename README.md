@@ -9,6 +9,8 @@ downloads, installs and configures everything: the MuMu Player emulator, the
 server, the game data and the patched client. Every download shows status,
 percentage, speed and the estimated time left.
 
+![Cage Setup main window](docs/main-window.png)
+
 > This package contains **no game APK, no game assets and no master data**.
 > The stock APK is downloaded from APKMirror and patched on your PC; the game
 > data is downloaded from archive.org and the master data is patched locally
@@ -48,6 +50,17 @@ is missing, so you can see at a glance whether the PC is ready.
 Everything the installer downloads (tools, client, assets, server) is kept in
 the folder that contains `CageSetup.exe`, so the whole setup is portable: copy
 the folder or delete it to start over.
+
+### Version, updates, display
+
+The version is shown in the window title and on the right of the header; click
+it to open the releases page. At startup the installer asks the public GitHub
+API for the latest release (one request, nothing about the PC is sent) and the
+label becomes **Update: vX.Y.Z** when a newer version exists.
+
+Only one installer can run per folder: a second copy tells you that it is
+already running and exits. The window is DPI aware and scales on 125% and 150%
+displays; on a screen that is too small it is reduced and scrolls.
 
 ### The six steps
 
@@ -239,6 +252,9 @@ If the files are already on disk, the installer uses them and skips the download
 A master data file that is neither the archive.org original nor a file this
 installer patched is left untouched (it is assumed to be intentional).
 
+The only other network request is the optional update check at startup; when it
+fails the installer simply carries on.
+
 ---
 
 ## Development
@@ -250,7 +266,7 @@ file, so what you read is what runs.
 # lint
 Invoke-ScriptAnalyzer -Path "Cage Setup.ps1" -Settings PSScriptAnalyzerSettings.psd1
 
-# tests (Pester 5)
+# tests (Pester 5.7)
 Invoke-Pester -Path tests -Output Detailed
 
 # diagnostics, no GUI
@@ -259,7 +275,11 @@ powershell -ExecutionPolicy Bypass -File "Cage Setup.ps1" -Console
 
 The GitHub workflow runs the same commands, then builds the executable and
 smoke-tests it: it starts the packed script with `-Console` and checks that the
-output is complete and that the script resolves its own folder.
+output is complete and that the script resolves its own folder. On a tag it also
+checks that the tag matches `$Script:AppVersion`.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and
+[SECURITY.md](SECURITY.md) to report a problem privately.
 
 ---
 

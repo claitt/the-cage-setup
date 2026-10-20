@@ -23,6 +23,19 @@
 #  official lunar-scripts patcher, the game data comes from archive.org and the
 #  master data is patched locally with the same tooling.
 # =====================================================================
+#  INDEX
+#  ------------------------------------------------------------------
+#   SOURCES AND PATHS ....... URLs, checksums, folders (the only part to edit)
+#   WINDOW CONTROL .......... hides the MuMu installer windows
+#   LOG / UTILITIES ......... logging, downloads, signatures, version compare
+#   EMULATOR ................ MuMu and ADB discovery, debloat, ARM check
+#   CLIENT BUILD ............ Java, apktool, Python, APK patching
+#   INSTALLATION ACTIONS .... the individual installation steps
+#   COMPOSITE ACTIONS ....... grouped steps used by the GUI
+#   EXECUTION ENGINE ........ runs the steps and reports the result
+#   CONSOLE / DIAGNOSTICS ... -Console output
+#   GUI ..................... the window, the six steps, update check
+# =====================================================================
 #Requires -Version 5.1
 
 param(
@@ -33,6 +46,57 @@ param(
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Net.Http
+
+# DPI awareness: without it Windows bitmap-stretches the window on a scaled
+# display (blurry text). The layout is then scaled by hand in the GUI section,
+# so a 150% display gets the same proportions instead of a tiny window.
+if (-not ('CageSetup.Dpi' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+namespace CageSetup {
+    public static class Dpi {
+        [DllImport("shcore.dll")]
+        private static extern int GetProcessDpiAwareness(IntPtr process, out int awareness);
+
+        [DllImport("shcore.dll")]
+        private static extern int SetProcessDpiAwareness(int awareness);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetProcessDPIAware();
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetDC(IntPtr window);
+
+        [DllImport("user32.dll")]
+        private static extern int ReleaseDC(IntPtr window, IntPtr dc);
+
+        [DllImport("gdi32.dll")]
+        private static extern int GetDeviceCaps(IntPtr dc, int index);
+
+        // Returns true when the process is DPI aware, making it aware if needed.
+        public static bool EnsureAware() {
+            int awareness;
+            try {
+                if (GetProcessDpiAwareness(IntPtr.Zero, out awareness) == 0 && awareness != 0) {
+                    return true;
+                }
+            } catch { }
+            try { if (SetProcessDpiAwareness(2) == 0) { return true; } } catch { }
+            try { return SetProcessDPIAware(); } catch { }
+            return false;
+        }
+
+        // LOGPIXELSX of the desktop: 96 = 100%, 120 = 125%, 144 = 150%.
+        public static int CurrentDpi() {
+            IntPtr dc = GetDC(IntPtr.Zero);
+            try { return GetDeviceCaps(dc, 88); } finally { ReleaseDC(IntPtr.Zero, dc); }
+        }
+    }
+}
+'@
+}
 
 # Running packed as CageSetup.exe? Then the script has no path of its own and
 # everything (downloads, tools, server) lives next to the executable instead.
@@ -47,6 +111,10 @@ if ($env:CAGE_SETUP_ROOT) {
     if (-not $Root) { $Root = (Get-Location).Path }
 }
 $LogFile = Join-Path $Root 'installer-log.txt'
+
+# Version of the installer: this is the single source of truth. The build
+# workflow reads this line and refuses to build a tag that does not match it.
+$Script:AppVersion = '1.2.0'
 
 # ---------------------------------------------------------------------
 #  SOURCES AND PATHS  (edit here when you redistribute the installer)
@@ -108,6 +176,10 @@ $Config = @{
     ServerExe     = Join-Path $Root 'server\wizard.exe'
     MasterFile    = Join-Path $Root 'server\assets\release\20240404193219.bin.e'
     AssetsArchive = Join-Path $Root 'downloads\resource_dump_android.7z'
+
+    # --- Update check (one request to the public GitHub API at startup) ---
+    ReleasesUrl      = 'https://github.com/claitt/cage-setup/releases/latest'
+    LatestReleaseApi = 'https://api.github.com/repos/claitt/cage-setup/releases/latest'
 }
 
 # SHA1 of the master data after the official patcher has extended the content
@@ -234,6 +306,31 @@ function Test-Admin {
     (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+# One installer per folder, so two windows cannot fight over the same
+# downloads and ports. The name is derived from the folder: installs in
+# different folders stay allowed.
+function Get-InstanceMutexName {
+    param([Parameter(Mandatory)][string]$Path)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($Path.TrimEnd('\').ToLowerInvariant())
+        $hash = [System.BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '')
+    } finally {
+        $sha.Dispose()
+    }
+    return 'Local\CageSetup-' + $hash.Substring(0, 16)
+}
+
+# True when $Latest is a valid version and is newer than $Current.
+function Test-NewerVersion {
+    param([string]$Current, [string]$Latest)
+    $a = $null
+    $b = $null
+    if (-not [version]::TryParse($Current, [ref]$a)) { return $false }
+    if (-not [version]::TryParse($Latest, [ref]$b)) { return $false }
+    return ($b -gt $a)
+}
+
 # Checks the Authenticode signature of a downloaded installer. Returns $true
 # only for a valid signature from one of the expected publishers.
 function Test-Signature {
@@ -312,6 +409,72 @@ function Test-HyperVActive {
 }
 
 # ---- emulator -------------------------------------------------------
+# MuMu lets you choose the installation folder and the folder name changes
+# between versions, so it is discovered instead of hardcoded: uninstall
+# entries first, then the usual folders.
+function Find-MuMuDir {
+    $candidates = @()
+    $uninstallRoots = @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall',
+        'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
+    )
+    foreach ($root in $uninstallRoots) {
+        if (-not (Test-Path $root)) { continue }
+        foreach ($key in @(Get-ChildItem $root -ErrorAction SilentlyContinue)) {
+            $info = Get-ItemProperty $key.PSPath -ErrorAction SilentlyContinue
+            if ($info -and $info.DisplayName -match 'MuMu' -and $info.InstallLocation) {
+                $candidates += [string]$info.InstallLocation
+            }
+        }
+    }
+    foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+        if (-not $base) { continue }
+        $candidates += Join-Path $base 'Netease\MuMuPlayer'
+        $candidates += @(Get-ChildItem (Join-Path $base 'Netease') -Directory -Filter 'MuMuPlayer*' -ErrorAction SilentlyContinue |
+                         Select-Object -Expand FullName)
+    }
+    foreach ($dir in $candidates) {
+        if (-not $dir) { continue }
+        $dir = ([string]$dir).Trim().Trim('"').TrimEnd('\')
+        if (Test-Path (Join-Path $dir 'nx_main\MuMuManager.exe')) { return $dir }
+    }
+    return $null
+}
+
+# The ADB binary ships inside the Android engine folder, one per engine
+# version: use the newest one instead of whatever the recursion finds first.
+function Find-AdbExe {
+    param([string]$MuMuDir)
+    $candidates = @()
+    if ($MuMuDir) {
+        $device = Join-Path $MuMuDir 'nx_device'
+        if (Test-Path $device) {
+            $dirs = @(Get-ChildItem $device -Directory -ErrorAction SilentlyContinue)
+            $sorted = $dirs | Sort-Object -Property @{ Expression = {
+                $v = $null
+                if ([version]::TryParse($_.Name, [ref]$v)) { $v } else { [version]'0.0' }
+            } } -Descending
+            foreach ($dir in $sorted) { $candidates += Join-Path $dir.FullName 'shell\adb.exe' }
+        }
+    }
+    $candidates += Join-Path $Root 'tools\android-sdk\platform-tools\adb.exe'
+    foreach ($file in $candidates) {
+        if ($file -and (Test-Path $file)) { return $file }
+    }
+    return $null
+}
+
+# Refreshes $Paths after an installation; also called once at startup.
+function Initialize-EmulatorPaths {
+    $mumu = Find-MuMuDir
+    if ($mumu) {
+        $Paths.MuMuDir = $mumu
+        $Paths.MuMuManager = Join-Path $mumu 'nx_main\MuMuManager.exe'
+    }
+    $Paths.Adb = Find-AdbExe $Paths.MuMuDir
+}
+
 function Test-MuMuInstalled {
     Test-Path $Paths.MuMuManager
 }
@@ -324,16 +487,11 @@ function Test-MuMuEngine {
 
 function Get-Adb {
     if ($Paths.Adb -and (Test-Path $Paths.Adb)) { return $Paths.Adb }
-    $candidates = @()
-    if (Test-Path (Join-Path $Paths.MuMuDir 'nx_device')) {
-        $candidates += Get-ChildItem (Join-Path $Paths.MuMuDir 'nx_device') -Recurse -Filter 'adb.exe' -ErrorAction SilentlyContinue |
-                       Select-Object -Expand FullName
-    }
-    $fallback = Join-Path $Root 'tools\android-sdk\platform-tools\adb.exe'
-    if (Test-Path $fallback) { $candidates += $fallback }
-    $Paths.Adb = $candidates | Select-Object -First 1
+    $Paths.Adb = Find-AdbExe $Paths.MuMuDir
     $Paths.Adb
 }
+
+Initialize-EmulatorPaths
 
 # Small cache: a status refresh asks this several times and every ADB call costs
 # about a second, which would freeze the window while refreshing.
@@ -1396,7 +1554,12 @@ function Action-InstallMuMu {
         if ($result -eq 'timeout') { Write-Log 'Timed out while waiting for the MuMu installation.' 'WARN' }
     }
 
-    if (Test-MuMuInstalled) { Write-Log 'Emulator installed' 'OK'; return $true }
+    if (Test-MuMuInstalled) {
+        Initialize-EmulatorPaths
+        Write-Log 'Emulator installed' 'OK'
+        Write-Log ("Emulator folder: " + $Paths.MuMuDir)
+        return $true
+    }
     Write-Log 'Emulator NOT installed' 'ERROR'; return $false
 }
 
@@ -1716,6 +1879,7 @@ function Invoke-Action {
 # =====================================================================
 if ($Console -or $InstallAll) {
     Write-Host '=== CAGE SETUP - diagnostics ===' -ForegroundColor Cyan
+    Write-Host ('Version               : ' + $Script:AppVersion)
     Write-Host ('Root folder           : ' + $Root)
     Write-Host ('Windows 64-bit        : ' + [Environment]::Is64BitOperatingSystem)
     Write-Host ('Administrator         : ' + (Test-Admin))
@@ -1756,6 +1920,31 @@ if ($Console -or $InstallAll) {
 [System.Windows.Forms.Application]::EnableVisualStyles()
 [System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false)
 
+# DPI: the window is scaled by hand further down, because WinForms automatic
+# scaling does not run for windows built in a script.
+$Script:DpiAware = [CageSetup.Dpi]::EnsureAware()
+$Script:Dpi = [CageSetup.Dpi]::CurrentDpi()
+$Script:Scale = if ($Script:DpiAware -and $Script:Dpi -gt 0) { $Script:Dpi / 96.0 } else { 1.0 }
+
+# One instance per folder: two windows would fight over the same downloads and
+# ports, and could start the server twice.
+$Script:InstanceMutex = $null
+$Script:HasInstanceMutex = $false
+try {
+    $Script:InstanceMutex = New-Object System.Threading.Mutex($false, (Get-InstanceMutexName -Path $Root))
+    if ($Script:InstanceMutex.WaitOne(0)) { $Script:HasInstanceMutex = $true }
+} catch [System.Threading.AbandonedMutexException] {
+    $Script:HasInstanceMutex = $true
+} catch {
+    Write-Verbose "Single-instance check skipped: $($_.Exception.Message)"
+}
+if ($Script:InstanceMutex -and -not $Script:HasInstanceMutex) {
+    [System.Windows.Forms.MessageBox]::Show(
+        "Cage Setup is already running from this folder:`r`n`r`n$Root",
+        'Cage Setup', 'OK', 'Information') | Out-Null
+    return
+}
+
 $Script:Gold      = [Drawing.Color]::FromArgb(222, 196, 140)
 $Script:Back      = [Drawing.Color]::FromArgb(24, 24, 28)
 $Script:Button    = [Drawing.Color]::FromArgb(36, 36, 42)
@@ -1769,7 +1958,8 @@ $Script:Red       = [Drawing.Color]::FromArgb(210, 90, 90)
 $Script:Blue      = [Drawing.Color]::FromArgb(110, 160, 220)
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'Cage Setup - NieR Re[in]carnation private server installer'
+$form.AutoScaleMode = 'None'   # the layout is scaled by hand, see "DPI scaling"
+$form.Text = 'Cage Setup ' + $Script:AppVersion + ' - NieR Re[in]carnation private server installer'
 $form.Size = New-Object Drawing.Size(800, 700)
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedDialog'
@@ -1795,8 +1985,21 @@ $subtitle = New-Object System.Windows.Forms.Label
 $subtitle.Text = 'NieR Re[in]carnation private server - guided installation'
 $subtitle.ForeColor = $Script:TextDim
 $subtitle.Location = New-Object Drawing.Point(22, 44)
-$subtitle.Size = New-Object Drawing.Size(740, 20)
+$subtitle.Size = New-Object Drawing.Size(600, 20)
 $form.Controls.Add($subtitle)
+
+# Version, and a link to the releases page. When a newer release exists the
+# text becomes "Update: vX.Y.Z" (see Start-UpdateCheck).
+$versionLink = New-Object System.Windows.Forms.LinkLabel
+$versionLink.Text = 'v' + $Script:AppVersion
+$versionLink.Location = New-Object Drawing.Point(624, 44)
+$versionLink.Size = New-Object Drawing.Size(140, 20)
+$versionLink.TextAlign = 'MiddleRight'
+$versionLink.LinkColor = $Script:TextDim
+$versionLink.ActiveLinkColor = $Script:Gold
+$versionLink.LinkBehavior = 'NeverUnderline'
+$versionLink.Add_LinkClicked({ Start-Process $Config.ReleasesUrl })
+$form.Controls.Add($versionLink)
 
 $rule = New-Object System.Windows.Forms.Panel
 $rule.Location = New-Object Drawing.Point(20, 72)
@@ -2162,6 +2365,53 @@ function Show-Advanced {
     Update-Steps
 }
 
+# ---- DPI scaling --------------------------------------------------
+# Applied once, after the layout is complete: every control, including the
+# five nested panels, is scaled. Fonts stay in points, so GDI+ renders them at
+# the size the display expects. On a 100% display this does nothing.
+if ($Script:Scale -ne 1.0) {
+    $form.Scale((New-Object Drawing.SizeF([single]$Script:Scale, [single]$Script:Scale)))
+    Write-Verbose ("Window scaled by $($Script:Scale) for $($Script:Dpi) DPI")
+}
+
+# ---- update check -------------------------------------------------
+# One request to the public GitHub API when the window opens. Nothing about
+# the PC is sent; only a newer version changes the label.
+function Start-UpdateCheck {
+    try {
+        $client = New-Object System.Net.Http.HttpClient
+        $client.Timeout = [TimeSpan]::FromSeconds(6)
+        [void]$client.DefaultRequestHeaders.TryAddWithoutValidation('User-Agent', 'CageSetup/' + $Script:AppVersion)
+        $Script:UpdateTask = $client.GetStringAsync($Config.LatestReleaseApi)
+        $Script:UpdateClient = $client
+        $Script:UpdateTimer = New-Object System.Windows.Forms.Timer
+        $Script:UpdateTimer.Interval = 500
+        $Script:UpdateTimer.Add_Tick({
+            if (-not $Script:UpdateTask.IsCompleted) { return }
+            $Script:UpdateTimer.Stop()
+            $Script:UpdateTimer.Dispose()
+            try {
+                if ($Script:UpdateTask.Status -eq 'RanToCompletion') {
+                    $release = $Script:UpdateTask.Result | ConvertFrom-Json
+                    $latest = ([string]$release.tag_name) -replace '^v', ''
+                    if (Test-NewerVersion -Current $Script:AppVersion -Latest $latest) {
+                        $versionLink.Text = 'Update: v' + $latest
+                        $versionLink.LinkColor = $Script:Gold
+                        Write-Log ("Update available: v$latest (this is $($Script:AppVersion))")
+                    }
+                }
+            } catch {
+                Write-Verbose "Update check failed: $($_.Exception.Message)"
+            } finally {
+                if ($Script:UpdateClient) { $Script:UpdateClient.Dispose() }
+            }
+        })
+        $Script:UpdateTimer.Start()
+    } catch {
+        Write-Verbose "Update check not started: $($_.Exception.Message)"
+    }
+}
+
 # ---- event handlers -----------------------------------------------
 $btnMain.Add_Click({
     if ($btnMain.Text -eq 'Launch game') { Start-Game } else { Start-Setup }
@@ -2203,8 +2453,27 @@ $btnRestartServer.Add_Click({
 })
 
 $form.Add_Shown({
-    Write-Log 'Cage Setup started.' 'STEP'
+    Write-Log ("Cage Setup " + $Script:AppVersion + " started.") 'STEP'
     if (-not (Test-Admin)) { Write-Log 'Tip: run as administrator to install MuMu Player.' 'WARN' }
+    if ($Script:DpiAware) {
+        Write-Log ("Display: $($Script:Dpi) DPI, window scale $([math]::Round($Script:Scale, 2))")
+    } else {
+        Write-Log 'Display: DPI awareness not available, Windows may scale the window.' 'WARN'
+    }
+
+    # A scaled window may not fit on a small screen: keep it reachable.
+    $area = [System.Windows.Forms.Screen]::FromControl($form).WorkingArea
+    $frameW = $form.Width - $form.ClientSize.Width
+    $frameH = $form.Height - $form.ClientSize.Height
+    $maxW = $area.Width - $frameW - 8
+    $maxH = $area.Height - $frameH - 8
+    if (($form.ClientSize.Width -gt $maxW) -or ($form.ClientSize.Height -gt $maxH)) {
+        $form.AutoScroll = $true
+        $form.ClientSize = New-Object Drawing.Size(
+            [Math]::Min($form.ClientSize.Width, $maxW),
+            [Math]::Min($form.ClientSize.Height, $maxH))
+        Write-Log ("Window reduced to $($form.ClientSize.Width)x$($form.ClientSize.Height) to fit the screen.")
+    }
 
     $form.Activate()
     $form.TopMost = $true
@@ -2214,6 +2483,14 @@ $form.Add_Shown({
     Update-Steps
     Update-ServerStateLabel
     Update-Progress -Text 'Ready.' -Done 0 -Total 0
+    Start-UpdateCheck
 })
 
-[void]$form.ShowDialog()
+try {
+    [void]$form.ShowDialog()
+} finally {
+    if ($Script:HasInstanceMutex -and $Script:InstanceMutex) {
+        try { $Script:InstanceMutex.ReleaseMutex() } catch { Write-Verbose "Mutex release failed: $($_.Exception.Message)" }
+    }
+    if ($Script:InstanceMutex) { $Script:InstanceMutex.Dispose() }
+}

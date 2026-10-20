@@ -92,6 +92,59 @@ Describe 'Signature checks' {
     }
 }
 
+Describe 'Version' {
+    It 'follows major.minor.patch' {
+        $Script:AppVersion | Should -Match '^\d+\.\d+\.\d+$'
+    }
+
+    It 'compares versions correctly' {
+        Test-NewerVersion -Current '1.2.0' -Latest '1.3.0' | Should -BeTrue
+        Test-NewerVersion -Current '1.2.0' -Latest '2.0'   | Should -BeTrue
+        Test-NewerVersion -Current '1.2.0' -Latest '1.2.0' | Should -BeFalse
+        Test-NewerVersion -Current '1.2.0' -Latest '1.1.9' | Should -BeFalse
+        Test-NewerVersion -Current '1.2.0' -Latest 'beta'  | Should -BeFalse
+    }
+}
+
+Describe 'Single instance' {
+    It 'derives the same mutex name from the same folder' {
+        $a = Get-InstanceMutexName -Path 'C:\Install\One'
+        $b = Get-InstanceMutexName -Path 'C:\Install\One\'
+        $a | Should -Be $b
+        $a | Should -Match '^Local\\CageSetup-[0-9A-F]{16}$'
+    }
+
+    It 'uses a different mutex name for another folder' {
+        Get-InstanceMutexName -Path 'C:\Install\One' |
+            Should -Not -Be (Get-InstanceMutexName -Path 'C:\Install\Two')
+    }
+}
+
+Describe 'Emulator discovery' {
+    It 'picks the newest ADB inside the Android engine folders' {
+        $mumu = Join-Path $TestDrive 'mumu'
+        foreach ($version in '9.0', '15.0', '12.0') {
+            $shell = Join-Path $mumu "nx_device\$version\shell"
+            New-Item -ItemType Directory -Force $shell | Out-Null
+            Set-Content -Path (Join-Path $shell 'adb.exe') -Value 'x' -Encoding ASCII
+        }
+        Find-AdbExe -MuMuDir $mumu | Should -BeLike '*15.0*'
+    }
+
+    It 'falls back to the bundled platform-tools when MuMu has no engine' {
+        $bundled = Join-Path $Root 'tools\android-sdk\platform-tools\adb.exe'
+        $found = Find-AdbExe -MuMuDir (Join-Path $TestDrive 'nothing')
+        if (Test-Path $bundled) { $found | Should -Be $bundled }
+        else { $found | Should -BeNullOrEmpty }
+    }
+
+    It 'only returns a folder that contains MuMuManager.exe' {
+        $dir = Find-MuMuDir
+        if ($dir) { Test-Path (Join-Path $dir 'nx_main\MuMuManager.exe') | Should -BeTrue }
+        else { $dir | Should -BeNullOrEmpty }
+    }
+}
+
 Describe 'Server archive' {
     It 'matches the pinned SHA256 when the archive has been downloaded' {
         $zip = Join-Path $Paths.Downloads 'lunar-tear-server.zip'
