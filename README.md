@@ -1,0 +1,210 @@
+# Lunar Tear Installer
+
+A guided Windows installer for the **NieR Re[in]carnation** private server
+([Lunar Tear](https://gitlab.com/walter-sparrow-group/lunar-tear), mirrored on
+[GitHub](https://github.com/Walter-Sparrow/lunar-tear)).
+
+Double-click, press **Install all**, and the installer downloads, installs and
+configures everything: the MuMu Player emulator, the server, the game data and
+the patched client. Every download shows status, percentage, speed and the
+estimated time left.
+
+> This package contains **no game APK, no game assets and no master data**.
+> The stock APK is downloaded from APKMirror and patched on your PC; the game
+> data is downloaded from archive.org and the master data is patched locally
+> with the official `lunar-scripts` tool.
+
+---
+
+## Requirements
+
+| Item | Notes |
+|---|---|
+| Windows 10 / 11 64-bit | |
+| Virtualization (VT-x / AMD-V) | Must be enabled in the BIOS |
+| Hyper-V disabled | MuMu needs direct hardware virtualization |
+| Free disk space | ~25 GB, ~75 GB if you install the full game assets |
+| Administrator rights | Required to install MuMu Player |
+| Internet connection | ~20 GB of downloads in total |
+
+The window shows a green/amber/red status for each requirement, so you can see
+at a glance whether the PC is ready.
+
+---
+
+## Usage
+
+1. Double-click **`Installer Lunar Tear.cmd`** (it asks for administrator rights).
+2. Wait for the status check to finish.
+3. Press **Install all** (about 20 GB of downloads), or tick only what you need.
+4. When it is done, press **Launch game**.
+
+### What the options do
+
+| Option | Download | What it does |
+|---|---|---|
+| **MuMu Player + engine + debloat** | ~5 GB | Downloads and installs MuMu Player, waits for the Android engine, then removes only the NetEase/MuMu bloatware. Google services are left intact. |
+| **Server, game data and client** | ~15.4 GB | Downloads the server binaries (GitHub Releases) and the master data, then builds the patched client: the stock APK is taken from APKMirror, patched with the official `lunar-scripts` patcher and signed again. Finally the 14.9 GB game assets are downloaded and extracted (archive.org). |
+| **Install client on the emulator** | - | Installs the APK on MuMu through ADB. |
+| **Private server** | - | Shows whether the server is running; use the **Start / Stop / Restart** buttons. |
+| **ARM translation / Package inventory** | - | Checks that the arm64 bridge is active and lists the installed packages. |
+
+### Building the client
+
+A private server needs a modified client (server addresses, SSL, encryption and
+billing checks), and a modified APK must be signed again. The installer does all
+of it automatically:
+
+1. downloads the stock APK 3.7.1 from APKMirror;
+2. downloads the toolchain on demand - Java (JRE 17), apktool, the Android build
+   tools and a portable Python runtime, about 140 MB in total;
+3. decompiles the APK, applies `android/patch_apk.py` from the upstream
+   `lunar-scripts` repository and rebuilds it;
+4. aligns and signs it with a local debug key (`apk/out/debug.keystore`).
+
+The build takes a few minutes (10-20 on slower PCs). The result is
+`apk\out\nier-patched.apk`. The toolchain is never committed to the repository:
+it is downloaded only when needed and reused afterwards.
+
+### Master data
+
+The master data published on archive.org is the original file. The installer
+patches it with the official `patch_masterdata.py`, which extends the content end
+dates to 2030-12-31, unlocks the Labyrinth event quests and removes the
+maintenance notice. The result is byte-identical to the patched file used by the
+reference server (7,763,264 bytes, SHA1 `DF6F4F1A...`), so no pre-patched copy has
+to be hosted anywhere.
+
+### Buttons
+
+- **Install all** - runs every option that is not ready yet.
+- **Install selected** - runs only the ticked rows.
+- **Refresh status** - re-checks everything.
+- **Launch game** - starts the server and the emulator if needed, then opens the game.
+- **Start / Stop / Restart** (server row) - controls the private server.
+- **Open log** - opens `installer-log.txt`.
+
+---
+
+## Where the files come from
+
+| Resource | Host | Size |
+|---|---|---|
+| Server binaries | [GitHub Releases](https://github.com/Walter-Sparrow/lunar-tear/releases) (latest version is detected automatically) | ~33 MB |
+| Game assets | [archive.org: nier_reincarnation_assets](https://archive.org/details/nier_reincarnation_assets) | 14.93 GB (~48.8 GB extracted) |
+| Master data | [archive.org: 20240404193219.bin](https://archive.org/details/20240404193219.bin) | 7.4 MB (patched locally) |
+| Game client (APK) | [APKMirror: NieR Re[in]carnation 3.7.1](https://www.apkmirror.com/apk/square-enix-co-ltd/nier-reincarnation/nier-reincarnation-3-7-1-release/) | 251 MB (patched locally) |
+| Patcher scripts | [lunar-scripts](https://gitlab.com/walter-sparrow-group/lunar-scripts) (downloaded on the first run, then cached) | ~64 KB |
+| MuMu Player | official NetEase download | ~5 GB with the engine |
+| Toolchain | Adoptium, Apktool, Android SDK Build-Tools, python.org, PyPI | ~140 MB |
+
+Downloads are **resumable**: if the connection drops, press the button again and
+the transfer continues from where it stopped (a `.part` file is kept until the
+download is complete).
+
+The downloaded archives are verified against their SHA1 hash where one is known.
+
+---
+
+## Configuration (for distributors)
+
+Open `Installer Lunar Tear.ps1` and edit the `$Config` block at the top.
+No value has to be filled in: every source already points to a public host.
+
+Optional overrides:
+
+| Key | Meaning |
+|---|---|
+| `ServerUrl` | Force a specific server build instead of the latest GitHub release |
+| `MasterUrl` / `MasterBytes` / `MasterSha1` | Different master data host (the installer patches it anyway) |
+| `AssetsUrl` / `AssetsBytes` / `AssetsSha1` | Different game assets host |
+| `ApkPageUrl` / `ApkStockBytes` | Different APK version on APKMirror |
+| `GrpcAddr` / `HttpAddr` / `AuthAddr` | Addresses written into the client (default `10.0.2.2`, the host as seen from the emulator) |
+| `JreUrl` / `ApktoolUrl` / `BuildToolsUrl` / `PythonUrl` | Mirror for the toolchain |
+| `ScriptsRaw` | Base URL of the `lunar-scripts` raw files (pin a commit to freeze the patcher version) |
+
+### Do not commit these files
+
+`.gitignore` already excludes the APK, the assets, the master data, the
+toolchain and the `server/` folder. Keep it that way: the repository must not
+contain copyrighted game content.
+
+---
+
+## Offline installation
+
+If the files are already on disk, the installer uses them and skips the download:
+
+| File | Expected path |
+|---|---|
+| Server binaries | `server\wizard.exe` + `server\bin\` |
+| Game assets | `server\assets\revisions\` |
+| Master data | `server\assets\release\20240404193219.bin.e` (already patched, or the original to be patched) |
+| Stock APK | `apk\stock\nier-3.7.1-stock.apk` |
+| Patched APK | `apk\out\nier-patched.apk` (any previously built APK is reused) |
+| Assets archive | `downloads\resource_dump_android.7z` |
+| Toolchain | `tools\jdk*`, `tools\apktool.jar`, `tools\android-sdk\build-tools`, `tools\python` |
+| Patcher scripts | `tools\lunar-scripts\` |
+| MuMu offline package | `tools\mumu\offline\MuMuNG-offline-setup.exe` |
+
+A master data file that is neither the archive.org original nor a file this
+installer patched is left untouched (it is assumed to be intentional).
+
+---
+
+## Troubleshooting
+
+**The MuMu window stays hidden for a long time.**
+The silent installation hides MuMu's own windows. If no progress is detected for
+4 minutes the installer kills the setup and retries once with the window visible.
+Windows does not allow one process to re-show another process' window, which is
+why it restarts the setup instead.
+
+**"Emulator stopped" instead of a green status.**
+The status of the debloat, the client and the ARM bridge can only be checked
+while the emulator is running. Start it (or press *Launch game*) and refresh.
+
+**The asset download is huge.**
+The archive is 14.93 GB and extracts to about 48.8 GB. Make sure you have at
+least 75 GB free on `C:`. The download resumes if interrupted.
+
+**The client build fails.**
+Check the log: the failing tool and its output are written there. The usual
+causes are a missing `curl.exe` (Windows older than 10 version 1803), a
+temporary APKMirror outage, or an updated `patch_apk.py` in the upstream
+repository. The stock APK is kept in `apk\stock\`, so the download is not
+repeated. Delete `apk\out\nier-patched.apk` to force a rebuild.
+
+**APKMirror refuses the connection.**
+The APKMirror web pages are fetched with `curl.exe`, because the site rejects
+the .NET HTTP stack with a 403. If the page layout changes, the log will say
+"download link not found": download the APK manually from the link above, save
+it as `apk\stock\nier-3.7.1-stock.apk` and press the button again.
+
+**Re-enable a removed package.**
+```
+adb -s 127.0.0.1:7555 shell pm install-existing <package>
+adb -s 127.0.0.1:7555 shell pm enable --user 0 <package>
+```
+
+---
+
+## Credits
+
+- **Lunar Tear** private server - [walter-sparrow-group on GitLab](https://gitlab.com/walter-sparrow-group/lunar-tear) / [Walter-Sparrow on GitHub](https://github.com/Walter-Sparrow/lunar-tear)
+- **lunar-scripts** patchers (`patch_apk.py`, `patch_masterdata.py`) - [walter-sparrow-group](https://gitlab.com/walter-sparrow-group/lunar-scripts)
+- **Game assets** - [nier_reincarnation_assets](https://archive.org/details/nier_reincarnation_assets) on archive.org
+- **Master data** - [20240404193219.bin](https://archive.org/details/20240404193219.bin) on archive.org
+- **Stock APK** - [APKMirror](https://www.apkmirror.com/apk/square-enix-co-ltd/nier-reincarnation/)
+- **apktool** - [iBotPeaches](https://github.com/iBotPeaches/Apktool), Apache License 2.0
+- **Android SDK Build-Tools** (`zipalign`, `apksigner`) - Google, Apache License 2.0
+- **Eclipse Temurin JRE** - [Adoptium](https://adoptium.net/), GPLv2 with Classpath Exception
+- **Python** - [python.org](https://www.python.org/), PSF License
+- **PyCryptodome / msgpack / lz4** - PyPI packages used by the master data patcher
+- **MuMu Player** - NetEase
+- **7-Zip** reduced console version (`7zr.exe`) - Igor Pavlov, public domain
+- **curl** - Daniel Stenberg and contributors, shipped with Windows
+
+NieR Re[in]carnation and all related assets are property of Square Enix.
+This project is a community preservation effort and is not affiliated with
+Square Enix or NetEase.

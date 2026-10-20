@@ -1,0 +1,5 @@
+# Keep the batch launchers and the PowerShell script usable after a clone
+* text=auto
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.md  text eol=lf
