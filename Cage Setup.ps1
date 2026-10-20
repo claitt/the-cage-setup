@@ -99,23 +99,76 @@ namespace CageSetup {
 '@
 }
 
-# Running packed as CageSetup.exe? Then the script has no path of its own and
-# everything (downloads, tools, server) lives next to the executable instead.
-# CAGE_SETUP_ROOT overrides the folder, which the test harness uses.
+# Running packed as CageSetup.exe? Then the script has no path of its own, so
+# the folder of the executable is both the place for the log and the default
+# place for the game files.
+# CAGE_SETUP_ROOT overrides both, which the test harness uses.
+
+# Absolute path without the trailing separator; a drive root ("D:\") is kept.
+function Get-NormalFolderPath {
+    param([Parameter(Mandatory)][string]$Path)
+    $full = [System.IO.Path]::GetFullPath($Path)
+    if ($full.Length -gt 3) { $full = $full.TrimEnd('\') }
+    return $full
+}
+
 $HostExe = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
 if ($env:CAGE_SETUP_ROOT) {
-    $Root = $env:CAGE_SETUP_ROOT
-} elseif ($HostExe -and (Split-Path -Leaf $HostExe) -notmatch '^(powershell|pwsh)(_ise)?\.exe$') {
-    $Root = Split-Path -Parent $HostExe
+    $AppDir = $env:CAGE_SETUP_ROOT
+    $Root = $AppDir
 } else {
-    $Root = Split-Path -Parent $MyInvocation.MyCommand.Definition
-    if (-not $Root) { $Root = (Get-Location).Path }
+    if ($HostExe -and (Split-Path -Leaf $HostExe) -notmatch '^(powershell|pwsh)(_ise)?\.exe$') {
+        $AppDir = Split-Path -Parent $HostExe
+    } else {
+        $AppDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+        if (-not $AppDir) { $AppDir = (Get-Location).Path }
+    }
+    # The game files can live in another folder, chosen in the window with
+    # "Use game files..." and remembered in this file next to the installer.
+    $Root = $AppDir
+    $savedRoot = Join-Path $AppDir 'data-folder.txt'
+    if (Test-Path -LiteralPath $savedRoot) {
+        $candidate = Get-Content -LiteralPath $savedRoot -Raw -ErrorAction SilentlyContinue
+        if ($candidate) {
+            $candidate = $candidate.Trim()
+            if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Container)) {
+                $Root = Get-NormalFolderPath -Path $candidate
+            }
+        }
+    }
 }
-$LogFile = Join-Path $Root 'installer-log.txt'
+$LogFile = Join-Path $AppDir 'installer-log.txt'
+$Script:AppDir = $AppDir
+
+# Absolute paths that follow the game files folder: Set-DataRoot rewrites them
+# when the user reuses an existing installation. Keys match $Config and $Paths.
+function Get-DataPathMap {
+    param([Parameter(Mandatory)][string]$Base)
+    return @{
+        ServerExe        = Join-Path $Base 'server\wizard.exe'
+        MasterFile       = Join-Path $Base 'server\assets\release\20240404193219.bin.e'
+        AssetsArchive    = Join-Path $Base 'downloads\resource_dump_android.7z'
+        ApkStockFile     = Join-Path $Base 'apk\stock\nier-3.7.1-stock.apk'
+        ApkWorkDir       = Join-Path $Base 'apk\work'
+        ApkOutput        = Join-Path $Base 'apk\out\nier-patched.apk'
+        Keystore         = Join-Path $Base 'apk\out\debug.keystore'
+        MuMuInstaller    = Join-Path $Base 'tools\mumu\MuMu-installer.exe'
+        MuMuInstallerOff = Join-Path $Base 'tools\mumu\offline\MuMuNG-offline-setup.exe'
+        SevenZip         = Join-Path $Base 'tools\7zr.exe'
+        ServerDir        = Join-Path $Base 'server'
+        AssetsDir        = Join-Path $Base 'server\assets'
+        Downloads        = Join-Path $Base 'downloads'
+        JdkDir           = Join-Path $Base 'tools\jdk'
+        ApktoolJar       = Join-Path $Base 'tools\apktool.jar'
+        BuildToolsDir    = Join-Path $Base 'tools\build-tools'
+        PythonDir        = Join-Path $Base 'tools\python'
+        ScriptsDir       = Join-Path $Base 'tools\lunar-scripts'
+    }
+}
 
 # Version of the installer: this is the single source of truth. The build
 # workflow reads this line and refuses to build a tag that does not match it.
-$Script:AppVersion = '1.3.0'
+$Script:AppVersion = '1.4.0'
 
 # ---------------------------------------------------------------------
 #  SOURCES AND PATHS  (edit here when you redistribute the installer)
@@ -423,14 +476,119 @@ function Confirm-SignedInstaller {
     return ($answer -eq [System.Windows.Forms.DialogResult]::Yes)
 }
 
+# Free space on the drive that holds the game files (not necessarily C:).
 function Get-FreeSpaceGB {
-    try { [math]::Round((Get-PSDrive C -ErrorAction Stop).Free / 1GB, 1) } catch { 0 }
+    param([string]$Path = $Root)
+    try {
+        $full = [System.IO.Path]::GetFullPath($Path)
+        $drive = New-Object System.IO.DriveInfo([System.IO.Path]::GetPathRoot($full))
+        return [math]::Round($drive.AvailableFreeSpace / 1GB, 1)
+    } catch {
+        try { [math]::Round((Get-PSDrive C -ErrorAction Stop).Free / 1GB, 1) } catch { 0 }
+    }
 }
 
 function Get-FolderSize {
     param([string]$Path)
     if (-not (Test-Path $Path)) { return 0 }
     (Get-ChildItem $Path -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+}
+
+# ---- game files folder ----------------------------------------------
+# The window can point the whole installation at another folder: an earlier
+# install, a disk with more space, or a folder where the files were downloaded.
+# Every path below is derived from $Root, so switching is a matter of rewriting
+# the map and the status checks follow.
+function Set-DataRoot {
+    param([Parameter(Mandatory)][string]$Path)
+    $full = Get-NormalFolderPath -Path $Path
+    if (-not (Test-Path -LiteralPath $full -PathType Container)) {
+        throw "Folder not found: $full"
+    }
+    $script:Root = $full
+    $map = Get-DataPathMap -Base $full
+    foreach ($key in $map.Keys) {
+        if ($Config.ContainsKey($key)) { $Config[$key] = $map[$key] }
+        if ($Paths.ContainsKey($key)) { $Paths[$key] = $map[$key] }
+    }
+    # an archive saved straight into the chosen folder is used as well
+    $standard = $Config.AssetsArchive
+    $bare = Join-Path $full 'resource_dump_android.7z'
+    if (-not (Test-Path -LiteralPath $standard) -and (Test-Path -LiteralPath $bare)) {
+        $Config.AssetsArchive = $bare
+    }
+    $Script:MasterHash = $null
+    $Script:EmulatorCacheTime = [datetime]::MinValue
+    $Script:ServerCacheTime = [datetime]::MinValue
+    return $full
+}
+
+function Save-DataRoot {
+    $file = Join-Path $Script:AppDir 'data-folder.txt'
+    try {
+        if ($script:Root -eq $Script:AppDir) {
+            Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+        } else {
+            Set-Content -LiteralPath $file -Value $script:Root -Encoding UTF8
+        }
+    } catch {
+        Write-Log ("The game files folder cannot be remembered next to the installer: " + $_.Exception.Message) 'WARN'
+    }
+}
+
+# What a folder already contains, shown before switching to it.
+function Get-FilesFolderReport {
+    param([Parameter(Mandatory)][string]$Path)
+    $checks = [ordered]@{}
+    $checks['server binaries'] = (Test-Path -LiteralPath (Join-Path $Path 'server\wizard.exe')) -and
+        (Test-Path -LiteralPath (Join-Path $Path 'server\bin'))
+    $revisions = Join-Path $Path 'server\assets\revisions'
+    $checks['extracted game assets'] = (Test-Path -LiteralPath $revisions) -and
+        [bool](Get-ChildItem -LiteralPath $revisions -Directory -ErrorAction SilentlyContinue | Select-Object -First 1)
+    $checks['master data'] = Test-Path -LiteralPath (Join-Path $Path 'server\assets\release\20240404193219.bin.e')
+    $archive = @(
+        (Join-Path $Path 'downloads\resource_dump_android.7z'),
+        (Join-Path $Path 'resource_dump_android.7z')
+    ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    $checks['game assets archive'] = [bool]$archive
+    $checks['stock APK'] = Test-Path -LiteralPath (Join-Path $Path 'apk\stock\nier-3.7.1-stock.apk')
+    $checks['patched client'] = Test-Path -LiteralPath (Join-Path $Path 'apk\out\nier-patched.apk')
+    $checks['build toolchain'] = (Test-Path -LiteralPath (Join-Path $Path 'tools\jdk')) -or
+        (Test-Path -LiteralPath (Join-Path $Path 'tools\apktool.jar'))
+
+    $found = @()
+    $missing = @()
+    foreach ($key in $checks.Keys) {
+        if ($checks[$key]) { $found += $key } else { $missing += $key }
+    }
+    if ($archive) {
+        $size = (Get-Item -LiteralPath $archive).Length
+        $label = 'game assets archive (' + (Format-Size $size) + ')'
+        if ($Config.AssetsBytes -and $size -ne $Config.AssetsBytes) {
+            $label = 'game assets archive (' + (Format-Size $size) + ', expected ' + (Format-Size $Config.AssetsBytes) + ')'
+        }
+        $found = @($found | ForEach-Object { if ($_ -eq 'game assets archive') { $label } else { $_ } })
+    }
+    return [pscustomobject]@{
+        Path    = Get-NormalFolderPath -Path $Path
+        Found   = [string[]]$found
+        Missing = [string[]]$missing
+    }
+}
+
+function Format-FilesFolderStatus {
+    param([Parameter(Mandatory)]$Report)
+    if ($Report.Found.Count -gt 0) {
+        $text = 'Found: ' + ($Report.Found -join ', ')
+    } else {
+        $text = 'No Cage Setup files here yet.'
+    }
+    if ($Report.Missing.Count -gt 0) {
+        $text += "`r`nStill to get: " + ($Report.Missing -join ', ')
+    } else {
+        $text += "`r`nEverything is already there."
+    }
+    return $text
 }
 
 function Test-VirtualizationEnabled {
@@ -624,7 +782,7 @@ function Get-PcIssues {
     $why = @()
     if (-not [Environment]::Is64BitOperatingSystem) { $why += 'Windows must be 64-bit' }
     if (-not (Test-VirtualizationEnabled)) { $why += 'virtualization (VT-x / AMD-V) must be enabled in the BIOS' }
-    if ((Get-FreeSpaceGB) -lt 25) { $why += 'at least 25 GB of free space are required' }
+    if ((Get-FreeSpaceGB) -lt 25) { $why += 'at least 25 GB of free space in the game files folder are required' }
     if (Test-HyperVActive) { $why += 'Hyper-V must be disabled' }
     if (-not (Test-Admin)) { $why += 'run the installer as administrator' }
     return $why
@@ -1502,7 +1660,7 @@ function Build-ClientApk {
 
     $free = Get-FreeSpaceGB
     if ($free -lt 8) {
-        Write-Log "At least 8 GB free on C: are required to build the APK (you have $free GB)." 'ERROR'
+        Write-Log "At least 8 GB free in the game files folder are required to build the APK (you have $free GB)." 'ERROR'
         return $false
     }
 
@@ -1887,7 +2045,7 @@ function Action-GetGameAssets {
         $needGB = Get-AssetsDiskRequirementGB -TotalBytes $Config.AssetsBytes -DownloadedBytes $partialBytes
         $free = Get-FreeSpaceGB
         if ($free -lt $needGB) {
-            Write-Log "Not enough disk space: about $needGB GB free on C: are required (you have $free GB)." 'ERROR'
+            Write-Log "Not enough disk space: about $needGB GB free in the game files folder are required (you have $free GB)." 'ERROR'
             return $false
         }
         Send-Download -Url $Config.AssetsUrl -Destination $archive -Label 'Game assets (14.9 GB)' `
@@ -1900,7 +2058,7 @@ function Action-GetGameAssets {
     # after the download may have filled it.
     $needExtractGB = $Script:AssetsExtractGB + 2
     if ((Get-FreeSpaceGB) -lt $needExtractGB) {
-        Write-Log "Not enough disk space: extracting the assets needs about $needExtractGB GB free on C: (you have $(Get-FreeSpaceGB) GB)." 'ERROR'
+        Write-Log "Not enough disk space: extracting the assets needs about $needExtractGB GB free in the game files folder (you have $(Get-FreeSpaceGB) GB)." 'ERROR'
         return $false
     }
 
@@ -2091,7 +2249,7 @@ function Get-DiagnosticsText {
     $lines += 'Admin      : ' + (Test-Admin)
     $lines += 'Virtualiz. : ' + (Test-VirtualizationEnabled)
     $lines += 'Hyper-V    : ' + (Test-HyperVActive)
-    $lines += 'Free on C: : ' + (Get-FreeSpaceGB) + ' GB'
+    $lines += 'Free space : ' + (Get-FreeSpaceGB) + ' GB on the game files drive'
     $lines += 'Display    : ' + $dpi + ' DPI (scale ' + [math]::Round($scale, 2) + ')'
     $lines += 'Root       : ' + $Root
     $lines += ''
@@ -2136,7 +2294,7 @@ if ($Console -or $InstallAll) {
     Write-Host ('Administrator         : ' + (Test-Admin))
     Write-Host ('Virtualization        : ' + (Test-VirtualizationEnabled))
     Write-Host ('Hyper-V active        : ' + (Test-HyperVActive))
-    Write-Host ('Free space on C:      : ' + (Get-FreeSpaceGB) + ' GB')
+    Write-Host ('Free space            : ' + (Get-FreeSpaceGB) + ' GB (game files drive)')
     Write-Host ('MuMu installed        : ' + (Test-MuMuInstalled))
     Write-Host ('Android engine        : ' + (Test-MuMuEngine))
     Write-Host ('ADB found             : ' + (Get-Adb))
@@ -2178,12 +2336,13 @@ $Script:Dpi = [CageSetup.Dpi]::CurrentDpi()
 $Script:Scale = if ($Script:DpiAware -and $Script:Dpi -gt 0) { $Script:Dpi / 96.0 } else { 1.0 }
 $Script:Running = $false
 
-# One instance per folder: two windows would fight over the same downloads and
-# ports, and could start the server twice.
+# One instance per installer folder: two windows would fight over the same
+# downloads and ports, and could start the server twice. The game files folder
+# can change while the window is open, so the lock follows the executable.
 $Script:InstanceMutex = $null
 $Script:HasInstanceMutex = $false
 try {
-    $Script:InstanceMutex = New-Object System.Threading.Mutex($false, (Get-InstanceMutexName -Path $Root))
+    $Script:InstanceMutex = New-Object System.Threading.Mutex($false, (Get-InstanceMutexName -Path $AppDir))
     if ($Script:InstanceMutex.WaitOne(0)) { $Script:HasInstanceMutex = $true }
 } catch [System.Threading.AbandonedMutexException] {
     $Script:HasInstanceMutex = $true
@@ -2192,7 +2351,7 @@ try {
 }
 if ($Script:InstanceMutex -and -not $Script:HasInstanceMutex) {
     [System.Windows.Forms.MessageBox]::Show(
-        "Cage Setup is already running from this folder:`r`n`r`n$Root",
+        "Cage Setup is already running from this folder:`r`n`r`n$AppDir",
         'Cage Setup', 'OK', 'Information') | Out-Null
     return
 }
@@ -2440,26 +2599,37 @@ $btnMain.TabIndex = 0
 $btnLog.TabIndex = 1
 $btnDiagnostics.TabIndex = 2
 
+$lnkUseFiles = New-Object System.Windows.Forms.LinkLabel
+$lnkUseFiles.Text = 'Use game files...'
+$lnkUseFiles.Location = New-Object Drawing.Point(492, 484)
+$lnkUseFiles.Size = New-Object Drawing.Size(100, 18)
+$lnkUseFiles.TextAlign = 'MiddleRight'
+$lnkUseFiles.LinkColor = $Script:TextDim
+$lnkUseFiles.ActiveLinkColor = $Script:Gold
+$lnkUseFiles.LinkBehavior = 'NeverUnderline'
+$lnkUseFiles.TabIndex = 3
+$form.Controls.Add($lnkUseFiles)
+
 $lnkRefresh = New-Object System.Windows.Forms.LinkLabel
 $lnkRefresh.Text = 'Refresh'
-$lnkRefresh.Location = New-Object Drawing.Point(596, 484)
+$lnkRefresh.Location = New-Object Drawing.Point(600, 484)
 $lnkRefresh.Size = New-Object Drawing.Size(56, 18)
 $lnkRefresh.TextAlign = 'MiddleRight'
 $lnkRefresh.LinkColor = $Script:TextDim
 $lnkRefresh.ActiveLinkColor = $Script:Gold
 $lnkRefresh.LinkBehavior = 'NeverUnderline'
-$lnkRefresh.TabIndex = 3
+$lnkRefresh.TabIndex = 4
 $form.Controls.Add($lnkRefresh)
 
 $lnkAdvanced = New-Object System.Windows.Forms.LinkLabel
 $lnkAdvanced.Text = 'Advanced...'
-$lnkAdvanced.Location = New-Object Drawing.Point(660, 484)
-$lnkAdvanced.Size = New-Object Drawing.Size(104, 18)
+$lnkAdvanced.Location = New-Object Drawing.Point(664, 484)
+$lnkAdvanced.Size = New-Object Drawing.Size(100, 18)
 $lnkAdvanced.TextAlign = 'MiddleRight'
 $lnkAdvanced.LinkColor = $Script:TextDim
 $lnkAdvanced.ActiveLinkColor = $Script:Gold
 $lnkAdvanced.LinkBehavior = 'NeverUnderline'
-$lnkAdvanced.TabIndex = 4
+$lnkAdvanced.TabIndex = 5
 $form.Controls.Add($lnkAdvanced)
 
 # ---- server row ---------------------------------------------------
@@ -2480,9 +2650,9 @@ $Script:ServerStateLabel = $serverState
 $btnStartServer = New-FlatButton -Text 'Start' -X 340 -Y 526 -Width 80 -Height 30
 $btnStopServer = New-FlatButton -Text 'Stop' -X 430 -Y 526 -Width 80 -Height 30
 $btnRestartServer = New-FlatButton -Text 'Restart' -X 520 -Y 526 -Width 90 -Height 30
-$btnStartServer.TabIndex = 5
-$btnStopServer.TabIndex = 6
-$btnRestartServer.TabIndex = 7
+$btnStartServer.TabIndex = 6
+$btnStopServer.TabIndex = 7
+$btnRestartServer.TabIndex = 8
 
 function Update-ServerStateLabel {
     if (-not $Script:ServerStateLabel) { return }
@@ -2550,6 +2720,7 @@ function Run-Steps {
     $Script:CancelRequested = $false
     $lnkRefresh.Enabled = $false
     $lnkAdvanced.Enabled = $false
+    $lnkUseFiles.Enabled = $false
     $btnStartServer.Enabled = $false
     $btnStopServer.Enabled = $false
     $btnRestartServer.Enabled = $false
@@ -2591,6 +2762,7 @@ function Run-Steps {
         $Script:CancelRequested = $false
         $lnkRefresh.Enabled = $true
         $lnkAdvanced.Enabled = $true
+        $lnkUseFiles.Enabled = $true
         $btnStartServer.Enabled = $true
         $btnStopServer.Enabled = $true
         $btnRestartServer.Enabled = $true
@@ -2685,6 +2857,149 @@ function Show-Advanced {
     Update-Steps
 }
 
+# ---- game files folder ----------------------------------------------
+# Switches the whole installation to another folder after showing what is
+# already inside, so an earlier install or a pre-downloaded archive is reused
+# instead of downloaded again.
+function Use-FilesFolder {
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (Test-ServerRunning) {
+        [System.Windows.Forms.MessageBox]::Show(
+            'Stop the server before changing the game files folder.',
+            'Game files folder', 'OK', 'Information') | Out-Null
+        return $false
+    }
+
+    $report = Get-FilesFolderReport -Path $Path
+    if ($report.Path -eq $script:Root) { return $true }
+
+    $message = "Use this folder for the game files?`r`n`r`n" + $report.Path + "`r`n`r`n"
+    if ($report.Found.Count -gt 0) {
+        $message += "Found:`r`n- " + ($report.Found -join "`r`n- ") + "`r`n`r`n"
+    } else {
+        $message += "This folder has no Cage Setup files yet: everything will be downloaded there.`r`n`r`n"
+    }
+    if ($report.Missing.Count -gt 0) {
+        $message += "Still to get:`r`n- " + ($report.Missing -join "`r`n- ")
+    } else {
+        $message += 'Everything is already there.'
+    }
+    $message += "`r`n`r`nThe installer uses this folder from now on."
+
+    $answer = [System.Windows.Forms.MessageBox]::Show(
+        $message, 'Game files folder', 'YesNo', 'Question')
+    if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return $false }
+
+    Set-DataRoot -Path $report.Path | Out-Null
+    Save-DataRoot
+    Write-Log ("Game files folder: " + $script:Root) 'INFO'
+    Update-Steps
+    Update-ServerStateLabel
+    Update-Progress -Text ("Game files folder: " + $script:Root) -Done 0 -Total 0
+    return $true
+}
+
+function Show-FilesFolder {
+    if ($Script:Running) { return }
+
+    $dlg = New-Object System.Windows.Forms.Form
+    $dlg.Text = 'Game files folder'
+    $dlg.Size = New-Object Drawing.Size(560, 300)
+    $dlg.StartPosition = 'CenterParent'
+    $dlg.FormBorderStyle = 'FixedDialog'
+    $dlg.MaximizeBox = $false
+    $dlg.MinimizeBox = $false
+    $dlg.BackColor = $Script:Back
+    $dlg.ForeColor = $Script:TextMain
+    $dlg.Font = New-Object Drawing.Font('Segoe UI', 9)
+
+    $info = New-Object System.Windows.Forms.Label
+    $info.Text = "Everything is downloaded, patched and unpacked in this folder.`r`n" +
+                 "If you already have the files (an earlier installation, or the`r`n" +
+                 "archive saved somewhere else), pick that folder to reuse them."
+    $info.Location = New-Object Drawing.Point(16, 12)
+    $info.Size = New-Object Drawing.Size(512, 52)
+    $info.ForeColor = $Script:TextDim
+    $dlg.Controls.Add($info)
+
+    $caption = New-Object System.Windows.Forms.Label
+    $caption.Text = 'Current folder'
+    $caption.Location = New-Object Drawing.Point(16, 70)
+    $caption.Size = New-Object Drawing.Size(512, 18)
+    $dlg.Controls.Add($caption)
+
+    $pathBox = New-Object System.Windows.Forms.TextBox
+    $pathBox.Text = $script:Root
+    $pathBox.ReadOnly = $true
+    $pathBox.Location = New-Object Drawing.Point(16, 90)
+    $pathBox.Size = New-Object Drawing.Size(512, 24)
+    $pathBox.BackColor = $Script:Button
+    $pathBox.ForeColor = $Script:TextMain
+    $pathBox.BorderStyle = 'FixedSingle'
+    $dlg.Controls.Add($pathBox)
+
+    $status = New-Object System.Windows.Forms.Label
+    $status.Location = New-Object Drawing.Point(16, 122)
+    $status.Size = New-Object Drawing.Size(512, 74)
+    $status.ForeColor = $Script:TextDim
+    $status.Text = Format-FilesFolderStatus (Get-FilesFolderReport -Path $script:Root)
+    $dlg.Controls.Add($status)
+
+    $change = New-Object System.Windows.Forms.Button
+    $change.Text = 'Change...'
+    $change.Location = New-Object Drawing.Point(16, 208)
+    $change.Size = New-Object Drawing.Size(110, 32)
+    $change.FlatStyle = 'Flat'
+    $change.BackColor = $Script:Gold
+    $change.ForeColor = [Drawing.Color]::Black
+    $dlg.Controls.Add($change)
+
+    $default = New-Object System.Windows.Forms.Button
+    $default.Text = 'Use installer folder'
+    $default.Location = New-Object Drawing.Point(134, 208)
+    $default.Size = New-Object Drawing.Size(150, 32)
+    $default.FlatStyle = 'Flat'
+    $default.BackColor = $Script:Button
+    $default.ForeColor = $Script:TextMain
+    $dlg.Controls.Add($default)
+
+    $close = New-Object System.Windows.Forms.Button
+    $close.Text = 'Close'
+    $close.Location = New-Object Drawing.Point(448, 208)
+    $close.Size = New-Object Drawing.Size(80, 32)
+    $close.FlatStyle = 'Flat'
+    $close.BackColor = $Script:Button
+    $close.ForeColor = $Script:TextMain
+    $close.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    $dlg.Controls.Add($close)
+
+    $refresh = {
+        $pathBox.Text = $script:Root
+        $status.Text = Format-FilesFolderStatus (Get-FilesFolderReport -Path $script:Root)
+    }
+
+    $change.Add_Click({
+        $browse = New-Object System.Windows.Forms.FolderBrowserDialog
+        $browse.Description = 'Pick the folder that contains the game files'
+        $browse.SelectedPath = $script:Root
+        $browse.ShowNewFolderButton = $false
+        if ($browse.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { return }
+        if (Use-FilesFolder -Path $browse.SelectedPath) { & $refresh }
+        # the status refresh can activate the main window: keep this one in front
+        $dlg.Activate()
+    })
+
+    $default.Add_Click({
+        if (Use-FilesFolder -Path $Script:AppDir) { & $refresh }
+        $dlg.Activate()
+    })
+
+    $dlg.AcceptButton = $change
+    $dlg.CancelButton = $close
+    $dlg.ShowDialog($form) | Out-Null
+}
+
 # ---- DPI scaling --------------------------------------------------
 # Applied once, after the layout is complete: every control, including the
 # five nested panels, is scaled. Fonts stay in points, so GDI+ renders them at
@@ -2764,6 +3079,7 @@ $lnkRefresh.Add_LinkClicked({
 })
 
 $lnkAdvanced.Add_LinkClicked({ Show-Advanced })
+$lnkUseFiles.Add_LinkClicked({ Show-FilesFolder })
 
 $btnStartServer.Add_Click({
     Update-Progress -Text 'Starting the server...' -Indeterminate

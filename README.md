@@ -21,7 +21,7 @@ the patched client. Every download shows progress, speed and the time left.
 | Windows 10 / 11 64-bit | |
 | Virtualization (VT-x / AMD-V) | Enabled in the BIOS |
 | Hyper-V disabled | MuMu needs direct hardware virtualization |
-| Free disk space | ~25 GB, ~75 GB with the full game assets |
+| Free disk space | ~25 GB, ~75 GB with the full game assets, on the drive that holds the game files |
 | Administrator rights | Needed to install MuMu Player |
 | Internet connection | ~20 GB of downloads |
 
@@ -38,8 +38,13 @@ a glance whether the PC is ready.
    skipped, so the same button can be pressed again after a failure.
 4. When the button becomes **Launch game**, the server is running: click it.
 
-Everything is kept next to `CageSetup.exe`, so the folder is portable: copy it,
-or delete it to start over.
+Everything is kept in the game files folder, which starts next to
+`CageSetup.exe`, so the folder is portable: copy it, or delete it to start over.
+**Use game files...** points the installer at a folder you already have (a
+previous installation on another disk, or the folder where the 14.9 GB archive
+is saved) and reuses everything it finds there without copying. The choice is
+remembered in `data-folder.txt` next to the executable; **Use installer folder**
+in that dialog goes back to the default.
 
 While setup runs, the primary button becomes **Cancel setup**. It stops the
 current download or installation and keeps the `.part` files, so the next
@@ -59,8 +64,9 @@ open the releases page. At startup the installer asks the public GitHub API for
 the latest release (one request, nothing about the PC is sent) and the label
 becomes **Update: vX.Y.Z** when a newer version exists.
 
-Only one installer runs per folder. The window is DPI aware and scales on 125%
-and 150% displays; on a screen that is too small it is reduced and scrolls.
+Only one installer runs per executable folder. The window is DPI aware and
+scales on 125% and 150% displays; on a screen that is too small it is reduced
+and scrolls.
 
 ### The six steps
 
@@ -113,7 +119,7 @@ On your PC (PowerShell 5.1):
 Install-Module ps2exe -Scope CurrentUser
 Invoke-PS2EXE -InputFile "Cage Setup.ps1" -OutputFile "CageSetup.exe" `
   -noConsole -requireAdmin -STA -iconFile "assets\cage.ico" `
-  -title "Cage Setup" -product "Cage Setup" -version "1.3.0.0"
+  -title "Cage Setup" -product "Cage Setup" -version "1.4.0.0"
 ```
 
 The exact command is in [`.github/workflows/build.yml`](.github/workflows/build.yml).
@@ -186,7 +192,10 @@ if the check fails, the GUI asks for confirmation and the console mode aborts.
 
 ## Offline installation
 
-If the files are already on disk, the installer uses them and skips the download:
+If the files are already on disk, the installer uses them and skips the download.
+Put them in the game files folder, or point **Use game files...** at the folder
+that contains them; the archive is also found when it sits directly in that
+folder instead of `downloads\`.
 
 | File | Expected path |
 |---|---|

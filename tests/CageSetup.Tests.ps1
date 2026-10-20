@@ -54,6 +54,112 @@ Describe 'Working folders' {
     }
 }
 
+Describe 'Game files folder' {
+    It 'builds every path from the chosen base folder' {
+        $map = Get-DataPathMap -Base 'D:\Games\Cage'
+        foreach ($key in $map.Keys) {
+            $map[$key] | Should -Match '^D:\\Games\\Cage\\'
+        }
+    }
+
+    It 'keeps the path map in sync with the defaults' {
+        $map = Get-DataPathMap -Base $Root
+        foreach ($key in $map.Keys) {
+            if ($Config.ContainsKey($key)) { $Config[$key] | Should -Be $map[$key] }
+            if ($Paths.ContainsKey($key)) { $Paths[$key] | Should -Be $map[$key] }
+        }
+    }
+
+    It 'reports the files it finds in a folder' {
+        $dir = Join-Path $TestDrive 'existing'
+        New-Item -ItemType Directory -Force -Path (Join-Path $dir 'server\assets\revisions\v1') | Out-Null
+        New-Item -ItemType Directory -Force -Path (Join-Path $dir 'server\bin') | Out-Null
+        New-Item -ItemType Directory -Force -Path (Join-Path $dir 'downloads') | Out-Null
+        New-Item -ItemType File -Force -Path (Join-Path $dir 'server\wizard.exe') | Out-Null
+        New-Item -ItemType File -Force -Path (Join-Path $dir 'server\assets\release\20240404193219.bin.e') | Out-Null
+        New-Item -ItemType File -Force -Path (Join-Path $dir 'apk\out\nier-patched.apk') | Out-Null
+        Set-Content -Path (Join-Path $dir 'downloads\resource_dump_android.7z') -Value 'x'
+
+        $report = Get-FilesFolderReport -Path $dir
+        $report.Found | Should -Contain 'server binaries'
+        $report.Found | Should -Contain 'extracted game assets'
+        $report.Found | Should -Contain 'master data'
+        $report.Found | Should -Contain 'patched client'
+        ($report.Found -join ' ') | Should -Match 'game assets archive'
+        $report.Missing | Should -Contain 'stock APK'
+        $report.Missing | Should -Contain 'build toolchain'
+    }
+
+    It 'also finds an archive saved at the root of the folder' {
+        $dir = Join-Path $TestDrive 'bare'
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        Set-Content -Path (Join-Path $dir 'resource_dump_android.7z') -Value 'x'
+        ((Get-FilesFolderReport -Path $dir).Found -join ' ') | Should -Match 'game assets archive \('
+    }
+
+    It 'switches the paths to the chosen folder and back' {
+        $dir = Join-Path $TestDrive 'other'
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        $original = $Root
+        try {
+            Set-DataRoot -Path $dir | Out-Null
+            $Paths.ServerDir | Should -Be (Join-Path $dir 'server')
+            $Config.ServerExe | Should -Be (Join-Path $dir 'server\wizard.exe')
+            $Config.AssetsArchive | Should -Be (Join-Path $dir 'downloads\resource_dump_android.7z')
+        } finally {
+            Set-DataRoot -Path $original | Out-Null
+        }
+        $Paths.ServerDir | Should -Be (Join-Path $original 'server')
+    }
+
+    It 'uses an archive that sits at the root of the chosen folder' {
+        $dir = Join-Path $TestDrive 'archive-at-root'
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        Set-Content -Path (Join-Path $dir 'resource_dump_android.7z') -Value 'x'
+        $original = $Root
+        try {
+            Set-DataRoot -Path $dir | Out-Null
+            $Config.AssetsArchive | Should -Be (Join-Path $dir 'resource_dump_android.7z')
+        } finally {
+            Set-DataRoot -Path $original | Out-Null
+        }
+    }
+
+    It 'remembers the chosen folder next to the installer' {
+        $remember = Join-Path $TestDrive 'remember'
+        $data = Join-Path $TestDrive 'data'
+        New-Item -ItemType Directory -Force -Path $remember, $data | Out-Null
+        $originalRoot = $Root
+        $originalApp = $Script:AppDir
+        try {
+            $Script:AppDir = $remember
+            Set-DataRoot -Path $data | Out-Null
+            Save-DataRoot
+            $file = Join-Path $remember 'data-folder.txt'
+            $file | Should -Exist
+            (Get-Content -LiteralPath $file -Raw).Trim() | Should -Be $data
+
+            # pointing the game files back at the installer folder removes the file
+            Set-DataRoot -Path $remember | Out-Null
+            Save-DataRoot
+            $file | Should -Not -Exist
+        } finally {
+            $Script:AppDir = $originalApp
+            Set-DataRoot -Path $originalRoot | Out-Null
+        }
+    }
+
+    It 'summarises what is there and what is still missing' {
+        $report = [pscustomobject]@{
+            Found   = [string[]]@('server binaries')
+            Missing = [string[]]@('stock APK')
+        }
+        $text = Format-FilesFolderStatus -Report $report
+        $text | Should -Match 'Found: server binaries'
+        $text | Should -Match 'Still to get: stock APK'
+    }
+}
+
 Describe 'Format-Size' {
     It 'formats <Bytes> bytes as "<Expected>"' -TestCases @(
         @{ Bytes = 512;  Expected = '512 B' }
