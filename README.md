@@ -113,7 +113,7 @@ is why Windows shows the UAC prompt when it starts.
 
 ### Build it yourself
 
-On GitHub: open **Actions → Build CageSetup.exe → Run workflow**. The build runs
+On GitHub: open **Actions -> Build CageSetup.exe -> Run workflow**. The build runs
 on a clean Windows runner, checks that the script parses, packs it and uploads
 `CageSetup.exe` together with its SHA256 as downloadable artifacts. Pushing a
 tag such as `v1.0.0` also publishes both files on the Releases page.
