@@ -4,7 +4,7 @@ An unofficial, guided Windows installer for the **NieR Re[in]carnation** private
 server ([Lunar Tear](https://gitlab.com/walter-sparrow-group/lunar-tear), mirrored on
 [GitHub](https://github.com/Walter-Sparrow/lunar-tear)).
 
-Double-click, press **Install all**, and the installer downloads, installs and
+Double-click, press **Start setup**, and the installer downloads, installs and
 configures everything: the MuMu Player emulator, the server, the game data and
 the patched client. Every download shows status, percentage, speed and the
 estimated time left.
@@ -27,27 +27,30 @@ estimated time left.
 | Administrator rights | Required to install MuMu Player |
 | Internet connection | ~20 GB of downloads in total |
 
-The window shows a green/amber/red status for each requirement, so you can see
-at a glance whether the PC is ready.
+The first step checks these requirements and tells you what to fix if something
+is missing, so you can see at a glance whether the PC is ready.
 
 ---
 
 ## Usage
 
 1. Double-click **`Cage Setup.cmd`** (it asks for administrator rights).
-2. Wait for the status check to finish.
-3. Press **Install all** (about 20 GB of downloads), or tick only what you need.
-4. When it is done, press **Launch game**.
+2. The window lists six steps. Each one shows **Ready** (green), **Waiting**
+   (grey) or **Problem** (red); step 1 also tells you what to fix, if anything.
+3. Press **Start setup** (about 20 GB of downloads): the installer runs the
+   steps that are not ready yet and skips everything already in place.
+4. When the button changes to **Launch game**, the server is running: click it.
 
-### What the options do
+### The six steps
 
-| Option | Download | What it does |
+| Step | Download | What it does |
 |---|---|---|
-| **MuMu Player + engine + debloat** | ~5 GB | Downloads and installs MuMu Player, waits for the Android engine, then removes only the NetEase/MuMu bloatware. Google services are left intact. |
-| **Server, game data and client** | ~15.4 GB | Downloads the server binaries (GitHub Releases) and the master data, then builds the patched client: the stock APK is taken from APKMirror, patched with the official `lunar-scripts` patcher and signed again. Finally the 14.9 GB game assets are downloaded and extracted (archive.org). |
-| **Install client on the emulator** | - | Installs the APK on MuMu through ADB. |
-| **Private server** | - | Shows whether the server is running; use the **Start / Stop / Restart** buttons. |
-| **ARM translation / Package inventory** | - | Checks that the arm64 bridge is active and lists the installed packages. |
+| **1. Check your PC** | - | Windows 64-bit, virtualization, Hyper-V, free space, administrator rights. |
+| **2. Install the emulator** | ~5 GB | Downloads and installs MuMu Player, waits for the Android engine, then removes only the NetEase/MuMu bloatware. Google services are left intact. |
+| **3. Get the game files** | ~15.4 GB | Downloads the server binaries (GitHub Releases) and the master data, then builds the patched client: the stock APK is taken from APKMirror, patched with the official `lunar-scripts` patcher and signed again. Finally the 14.9 GB game assets are downloaded and extracted (archive.org). |
+| **4. Install the game** | - | Installs the APK on MuMu through ADB. |
+| **5. Start the server** | - | Starts the private server (gRPC 8003, CDN 8080). |
+| **6. Launch the game** | - | Opens the game on the emulator. |
 
 ### Building the client
 
@@ -77,12 +80,15 @@ to be hosted anywhere.
 
 ### Buttons
 
-- **Install all** - runs every option that is not ready yet.
-- **Install selected** - runs only the ticked rows.
-- **Refresh status** - re-checks everything.
+- **Start setup** - runs the steps that are not ready yet. It is idempotent:
+  everything already in place is skipped, so you can press it again after a
+  failure. When all six steps are ready it becomes **Launch game**.
 - **Launch game** - starts the server and the emulator if needed, then opens the game.
-- **Start / Stop / Restart** (server row) - controls the private server.
 - **Open log** - opens `installer-log.txt`.
+- **Refresh** - re-checks the six steps.
+- **Advanced...** - runs a single component instead of the whole sequence:
+  emulator, game files, client installation, server, ARM check, package inventory.
+- **Start / Stop / Restart** (server row) - controls the private server.
 
 ---
 
@@ -160,9 +166,10 @@ The silent installation hides MuMu's own windows. If no progress is detected for
 Windows does not allow one process to re-show another process' window, which is
 why it restarts the setup instead.
 
-**"Emulator stopped" instead of a green status.**
-The status of the debloat, the client and the ARM bridge can only be checked
-while the emulator is running. Start it (or press *Launch game*) and refresh.
+**The emulator step says "Waiting" even though MuMu is installed.**
+The debloat, the client and the ARM bridge can only be checked while the
+emulator is running. Press **Start setup** (or *Launch game*) and the installer
+starts it; the step turns green when everything is verified.
 
 **The asset download is huge.**
 The archive is 14.93 GB and extracts to about 48.8 GB. Make sure you have at

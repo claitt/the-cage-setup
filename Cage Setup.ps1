@@ -353,6 +353,52 @@ function Test-ArmBridge {
     return ([bool]$bridge -and ($abis -match 'arm64'))
 }
 
+function Get-PcIssues {
+    $why = @()
+    if (-not [Environment]::Is64BitOperatingSystem) { $why += 'Windows must be 64-bit' }
+    if (-not (Test-VirtualizationEnabled)) { $why += 'virtualization (VT-x / AMD-V) must be enabled in the BIOS' }
+    if ((Get-FreeSpaceGB) -lt 25) { $why += 'at least 25 GB of free space are required' }
+    if (Test-HyperVActive) { $why += 'Hyper-V must be disabled' }
+    if (-not (Test-Admin)) { $why += 'run the installer as administrator' }
+    return $why
+}
+
+function Get-StepStatus {
+    param([string]$Key)
+    switch ($Key) {
+        'pc' {
+            if (-not [Environment]::Is64BitOperatingSystem) { return 'error' }
+            if (-not (Test-VirtualizationEnabled)) { return 'error' }
+            if ((Get-FreeSpaceGB) -lt 25) { return 'error' }
+            if (Test-HyperVActive) { return 'warn' }
+            if (-not (Test-Admin)) { return 'warn' }
+            return 'ok'
+        }
+        'emulator' {
+            if ((Test-MuMuInstalled) -and (Test-MuMuEngine) -and (Test-EmulatorRunning) -and (Test-DebloatApplied)) { return 'ok' }
+            return 'pending'
+        }
+        'files' {
+            if ((Test-ServerFiles) -and (Test-MasterData) -and (Test-GameAssets) -and [bool](Get-ClientApkPath)) { return 'ok' }
+            return 'pending'
+        }
+        'client' {
+            if (Test-GameInstalled) { return 'ok' }
+            return 'pending'
+        }
+        'server' {
+            if (Test-ServerRunning) { return 'ok' }
+            return 'pending'
+        }
+        'play' {
+            if ((Test-GameInstalled) -and (Test-ServerRunning)) { return 'ok' }
+            return 'pending'
+        }
+        default { return 'pending' }
+    }
+}
+
+
 # ---- server ---------------------------------------------------------
 function Test-ServerFiles {
     (Test-Path $Config.ServerExe) -and (Test-Path (Join-Path $Paths.ServerDir 'bin'))
@@ -1530,97 +1576,8 @@ function Action-Inventory {
     return $true
 }
 
-# =====================================================================
-#  PLAN (categories -> rows)
-# =====================================================================
-function New-Plan {
-    @(
-        [pscustomobject]@{ Group = '1. System requirements'; Id = 'R1'; Name = 'Windows 10/11 (64-bit)';       Detail = '64-bit operating system';            Size = '-';         Action = $null;             Status = 'check' }
-        [pscustomobject]@{ Group = '1. System requirements'; Id = 'R2'; Name = 'Virtualization (VT-x)';        Detail = 'Enabled in the BIOS';                Size = '-';         Action = $null;             Status = 'check' }
-        [pscustomobject]@{ Group = '1. System requirements'; Id = 'R3'; Name = 'Hyper-V disabled';             Detail = 'Hyper-V must not be active';         Size = '-';         Action = $null;             Status = 'check' }
-        [pscustomobject]@{ Group = '1. System requirements'; Id = 'R4'; Name = 'Free disk space';              Detail = '25 GB (75 GB with game assets)';     Size = '-';         Action = $null;             Status = 'check' }
-        [pscustomobject]@{ Group = '1. System requirements'; Id = 'R5'; Name = 'Administrator rights';         Detail = 'Required to install MuMu';           Size = '-';         Action = $null;             Status = 'check' }
 
-        [pscustomobject]@{ Group = '2. Emulator';           Id = 'E1'; Name = 'MuMu Player + engine + debloat'; Detail = 'Download, install and clean up';   Size = '~5 GB';     Action = 'InstallEmulator'; Status = 'todo' }
 
-        [pscustomobject]@{ Group = '3. Game';               Id = 'G1'; Name = 'Server, game data and client'; Detail = 'Assets, master data, APK download + build'; Size = '~15.4 GB'; Action = 'InstallGame';     Status = 'todo' }
-        [pscustomobject]@{ Group = '3. Game';               Id = 'G2'; Name = 'Install client on the emulator'; Detail = 'Installed via ADB';                Size = '-';         Action = 'InstallClient';   Status = 'todo' }
-
-        [pscustomobject]@{ Group = '4. Server';             Id = 'S1'; Name = 'Private server';               Detail = 'Use the Start / Stop / Restart buttons'; Size = '-';     Action = 'StartServer';     Status = 'todo' }
-
-        [pscustomobject]@{ Group = '5. Verification';       Id = 'V1'; Name = 'ARM translation (arm64)';      Detail = 'Required by the game APK';           Size = '-';         Action = 'CheckArmBridge';  Status = 'todo' }
-        [pscustomobject]@{ Group = '5. Verification';       Id = 'V2'; Name = 'Package inventory';            Detail = 'Summary of installed packages';      Size = '-';         Action = 'Inventory';       Status = 'todo' }
-    )
-}
-
-function Refresh-Status {
-    param($Plan)
-    foreach ($row in $Plan) {
-        switch ($row.Id) {
-            'R1' { $row.Status = if ([Environment]::Is64BitOperatingSystem) { 'ok' } else { 'error' } }
-            'R2' { $row.Status = if (Test-VirtualizationEnabled) { 'ok' } else { 'error' } }
-            'R3' { $row.Status = if (Test-HyperVActive) { 'warn' } else { 'ok' } }
-            'R4' { $row.Status = if ((Get-FreeSpaceGB) -ge 25) { 'ok' } else { 'error' } }
-            'R5' { $row.Status = if (Test-Admin) { 'ok' } else { 'warn' } }
-            'E1' {
-                if (-not (Test-MuMuInstalled)) { $row.Status = 'todo' }
-                elseif (-not (Test-MuMuEngine)) { $row.Status = 'todo' }
-                elseif (-not (Test-EmulatorRunning)) { $row.Status = 'off' }
-                elseif (Test-DebloatApplied) { $row.Status = 'ok' }
-                else { $row.Status = 'todo' }
-            }
-            'G1' {
-                $complete = (Test-ServerFiles) -and (Test-MasterData) -and (Test-GameAssets) -and [bool](Get-ClientApkPath)
-                $row.Status = if ($complete) { 'ok' } else { 'todo' }
-            }
-            'G2' {
-                if (Test-GameInstalled) { $row.Status = 'ok' }
-                elseif (Test-EmulatorRunning) { $row.Status = 'todo' }
-                else { $row.Status = 'off' }
-            }
-            'S1' { $row.Status = if (Test-ServerRunning) { 'ok' } else { 'todo' } }
-            'V1' {
-                if (-not (Test-EmulatorRunning)) { $row.Status = 'off' }
-                elseif (Test-ArmBridge) { $row.Status = 'ok' }
-                else { $row.Status = 'error' }
-            }
-            'V2' {
-                if (Test-Path (Join-Path $Root 'tools\mumu\inventory.txt')) { $row.Status = 'ok' }
-                elseif (Test-EmulatorRunning) { $row.Status = 'pending' } else { $row.Status = 'off' }
-            }
-        }
-    }
-}
-
-function Get-StatusLabel {
-    param([string]$Status)
-    switch ($Status) {
-        'ok'      { 'Ready' }
-        'todo'    { 'Not installed' }
-        'pending' { 'To check' }
-        'running' { 'In progress...' }
-        'warn'    { 'Warning' }
-        'error'   { 'Problem' }
-        'skipped' { 'Not applicable' }
-        'off'     { 'Emulator stopped' }
-        default   { $Status }
-    }
-}
-
-function Get-StatusColor {
-    param([string]$Status)
-    switch ($Status) {
-        'ok'      { [Drawing.Color]::FromArgb(0, 128, 0) }
-        'todo'    { [Drawing.Color]::FromArgb(90, 90, 90) }
-        'pending' { [Drawing.Color]::FromArgb(140, 100, 20) }
-        'running' { [Drawing.Color]::FromArgb(0, 90, 180) }
-        'warn'    { [Drawing.Color]::FromArgb(190, 120, 0) }
-        'error'   { [Drawing.Color]::FromArgb(180, 0, 0) }
-        'skipped' { [Drawing.Color]::Gray }
-        'off'     { [Drawing.Color]::FromArgb(120, 120, 120) }
-        default   { [Drawing.Color]::Black }
-    }
-}
 
 # =====================================================================
 #  COMPOSITE ACTIONS (the grouped options)
@@ -1666,35 +1623,6 @@ function Invoke-Action {
     }
 }
 
-function Run-Plan {
-    param([string[]]$OnlyIds)
-
-    $btnAll.Enabled = $false; $btnSelected.Enabled = $false
-    try {
-        $everything = ($OnlyIds -eq $null)
-        $pending = $Script:Plan | Where-Object {
-            $_.Action -and $_.Status -ne 'ok' -and ($everything -or ($OnlyIds -contains $_.Id))
-        }
-        if (-not $pending) { Write-Log 'Nothing to do: everything is already in place.' 'OK' }
-        foreach ($row in $pending) {
-            $item = $list.Items | Where-Object { $_.Tag -eq $row.Id } | Select-Object -First 1
-            if ($item) { $item.SubItems[2].Text = 'In progress...'; $item.SubItems[2].ForeColor = Get-StatusColor 'running' }
-            Write-Log ('--- ' + $row.Group + ' / ' + $row.Name)
-            $result = $null
-            try { $result = Invoke-Action -Action $row.Action }
-            catch { Write-Log ("Error on $($row.Name): " + $_.Exception.Message) 'ERROR'; $result = $false }
-            if ($result -eq $true) { $row.Status = 'ok' }
-            elseif ($result -eq $false) { $row.Status = 'error' }
-            else { $row.Status = 'ok' }
-            if ($item) { $item.SubItems[2].Text = Get-StatusLabel $row.Status; $item.SubItems[2].ForeColor = Get-StatusColor $row.Status }
-        }
-        Refresh-Status -Plan $Script:Plan
-        Sync-List
-        Update-Progress -Text 'Finished.' -Done 0 -Total 0
-    } finally {
-        $btnAll.Enabled = $true; $btnSelected.Enabled = $true
-    }
-}
 
 # =====================================================================
 #  CONSOLE / DIAGNOSTICS
@@ -1740,215 +1668,256 @@ if ($Console -or $InstallAll) {
 [System.Windows.Forms.Application]::EnableVisualStyles()
 [System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false)
 
+$Script:Gold      = [Drawing.Color]::FromArgb(222, 196, 140)
+$Script:Back      = [Drawing.Color]::FromArgb(24, 24, 28)
+$Script:Button    = [Drawing.Color]::FromArgb(36, 36, 42)
+$Script:ButtonHot = [Drawing.Color]::FromArgb(48, 48, 56)
+$Script:Border    = [Drawing.Color]::FromArgb(58, 58, 66)
+$Script:TextMain  = [Drawing.Color]::Gainsboro
+$Script:TextDim   = [Drawing.Color]::FromArgb(140, 140, 148)
+$Script:Green     = [Drawing.Color]::FromArgb(120, 190, 120)
+$Script:Amber     = [Drawing.Color]::FromArgb(220, 170, 80)
+$Script:Red       = [Drawing.Color]::FromArgb(210, 90, 90)
+$Script:Blue      = [Drawing.Color]::FromArgb(110, 160, 220)
+
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Cage Setup - NieR Re[in]carnation private server installer'
-$form.Size = New-Object Drawing.Size(1000, 850)
-$form.MinimumSize = New-Object Drawing.Size(880, 760)
+$form.Size = New-Object Drawing.Size(800, 700)
 $form.StartPosition = 'CenterScreen'
-$form.BackColor = [Drawing.Color]::FromArgb(24, 24, 28)
-$form.ForeColor = [Drawing.Color]::Gainsboro
+$form.FormBorderStyle = 'FixedDialog'
+$form.MaximizeBox = $false
+$form.BackColor = $Script:Back
+$form.ForeColor = $Script:TextMain
 $form.Font = New-Object Drawing.Font('Segoe UI', 9)
 
 $title = New-Object System.Windows.Forms.Label
-$title.Text = 'CAGE SETUP - Guided installation'
-$title.Font = New-Object Drawing.Font('Segoe UI', 14, [Drawing.FontStyle]::Bold)
-$title.ForeColor = [Drawing.Color]::FromArgb(222, 196, 140)
-$title.Location = New-Object Drawing.Point(16, 12)
-$title.Size = New-Object Drawing.Size(700, 30)
+$title.Text = 'CAGE SETUP'
+$title.Font = New-Object Drawing.Font('Segoe UI', 16, [Drawing.FontStyle]::Bold)
+$title.ForeColor = $Script:Gold
+$title.Location = New-Object Drawing.Point(20, 12)
+$title.Size = New-Object Drawing.Size(400, 32)
 $form.Controls.Add($title)
 
 $subtitle = New-Object System.Windows.Forms.Label
-$subtitle.Text = 'Press "Install all" (about 20 GB of downloads: MuMu, server, assets, client build) or tick the items you need.'
-$subtitle.ForeColor = [Drawing.Color]::Silver
-$subtitle.Location = New-Object Drawing.Point(18, 42)
-$subtitle.Size = New-Object Drawing.Size(940, 20)
+$subtitle.Text = 'NieR Re[in]carnation private server - guided installation'
+$subtitle.ForeColor = $Script:TextDim
+$subtitle.Location = New-Object Drawing.Point(22, 44)
+$subtitle.Size = New-Object Drawing.Size(740, 20)
 $form.Controls.Add($subtitle)
 
-$list = New-Object System.Windows.Forms.ListView
-$list.Location = New-Object Drawing.Point(16, 70)
-$list.Size = New-Object Drawing.Size(950, 364)
-$list.View = 'Details'
-$list.CheckBoxes = $true
-$list.FullRowSelect = $true
-$list.GridLines = $false
-$list.BackColor = [Drawing.Color]::FromArgb(32, 32, 38)
-$list.ForeColor = [Drawing.Color]::Gainsboro
-$list.Anchor = 'Top,Left,Right'
-$list.Columns.Add('Component', 250) | Out-Null
-$list.Columns.Add('Details', 330) | Out-Null
-$list.Columns.Add('Status', 150) | Out-Null
-$list.Columns.Add('Download', 120) | Out-Null
-$form.Controls.Add($list)
+$rule = New-Object System.Windows.Forms.Panel
+$rule.Location = New-Object Drawing.Point(20, 72)
+$rule.Size = New-Object Drawing.Size(744, 1)
+$rule.BackColor = [Drawing.Color]::FromArgb(70, 60, 40)
+$form.Controls.Add($rule)
 
-$Script:Plan = New-Plan
-$groups = @{}
-foreach ($row in $Script:Plan) {
-    if (-not $groups.ContainsKey($row.Group)) {
-        $g = New-Object System.Windows.Forms.ListViewGroup($row.Group)
-        $list.Groups.Add($g) | Out-Null
-        $groups[$row.Group] = $g
-    }
-    $item = New-Object System.Windows.Forms.ListViewItem($row.Name)
-    $item.SubItems.Add($row.Detail) | Out-Null
-    $item.SubItems.Add((Get-StatusLabel $row.Status)) | Out-Null
-    $item.SubItems.Add($row.Size) | Out-Null
-    $item.Group = $groups[$row.Group]
-    $item.Tag = $row.Id
-    $item.Checked = $row.Id -notlike 'R*'
-    $item.UseItemStyleForSubItems = $false
-    $list.Items.Add($item) | Out-Null
+# ---- the six steps ------------------------------------------------
+$Script:Steps = @(
+    [pscustomobject]@{ Key = 'pc';       Number = 1; Title = 'Check your PC';        Detail = 'Windows 64-bit, virtualization, Hyper-V, free space'; Status = 'pending' }
+    [pscustomobject]@{ Key = 'emulator'; Number = 2; Title = 'Install the emulator'; Detail = 'MuMu Player, Android engine, cleanup  -  ~5 GB';       Status = 'pending' }
+    [pscustomobject]@{ Key = 'files';    Number = 3; Title = 'Get the game files';   Detail = 'Server, master data, client build, assets  -  ~15.4 GB'; Status = 'pending' }
+    [pscustomobject]@{ Key = 'client';   Number = 4; Title = 'Install the game';     Detail = 'Client on the emulator, via ADB';                      Status = 'pending' }
+    [pscustomobject]@{ Key = 'server';   Number = 5; Title = 'Start the server';     Detail = 'gRPC 8003 / CDN 8080';                                 Status = 'pending' }
+    [pscustomobject]@{ Key = 'play';     Number = 6; Title = 'Launch the game';      Detail = 'Opens the game on the emulator';                       Status = 'pending' }
+)
+
+$stepsPanel = New-Object System.Windows.Forms.Panel
+$stepsPanel.Location = New-Object Drawing.Point(20, 84)
+$stepsPanel.Size = New-Object Drawing.Size(744, 324)
+$stepsPanel.BackColor = $Script:Back
+$form.Controls.Add($stepsPanel)
+
+$Script:StepRows = @{}
+$y = 0
+foreach ($s in $Script:Steps) {
+    $row = New-Object System.Windows.Forms.Panel
+    $row.Location = New-Object Drawing.Point(0, $y)
+    $row.Size = New-Object Drawing.Size(744, 54)
+    $row.BackColor = $Script:Back
+    $stepsPanel.Controls.Add($row)
+
+    $marker = New-Object System.Windows.Forms.Label
+    $marker.Location = New-Object Drawing.Point(2, 10)
+    $marker.Size = New-Object Drawing.Size(28, 28)
+    $marker.Font = New-Object Drawing.Font('Segoe UI', 14, [Drawing.FontStyle]::Bold)
+    $marker.TextAlign = 'MiddleCenter'
+    $marker.Text = 'o'
+    $marker.ForeColor = $Script:TextDim
+    $row.Controls.Add($marker)
+
+    $t = New-Object System.Windows.Forms.Label
+    $t.Location = New-Object Drawing.Point(38, 5)
+    $t.Size = New-Object Drawing.Size(520, 22)
+    $t.Font = New-Object Drawing.Font('Segoe UI', 10, [Drawing.FontStyle]::Bold)
+    $t.Text = "$($s.Number). $($s.Title)"
+    $row.Controls.Add($t)
+
+    $d = New-Object System.Windows.Forms.Label
+    $d.Location = New-Object Drawing.Point(38, 26)
+    $d.Size = New-Object Drawing.Size(580, 18)
+    $d.ForeColor = $Script:TextDim
+    $d.Text = $s.Detail
+    $row.Controls.Add($d)
+
+    $st = New-Object System.Windows.Forms.Label
+    $st.Location = New-Object Drawing.Point(620, 8)
+    $st.Size = New-Object Drawing.Size(120, 20)
+    $st.TextAlign = 'MiddleRight'
+    $st.ForeColor = $Script:TextDim
+    $row.Controls.Add($st)
+
+    $sep = New-Object System.Windows.Forms.Panel
+    $sep.Location = New-Object Drawing.Point(0, 52)
+    $sep.Size = New-Object Drawing.Size(744, 1)
+    $sep.BackColor = [Drawing.Color]::FromArgb(42, 42, 50)
+    $row.Controls.Add($sep)
+
+    $Script:StepRows[$s.Key] = @{ Marker = $marker; Detail = $d; Status = $st }
+    $y += 54
 }
 
-function Sync-List {
-    for ($i = 0; $i -lt $Script:Plan.Count; $i++) {
-        $item = $list.Items[$i]
-        if ($item) {
-            $item.SubItems[2].Text = Get-StatusLabel $Script:Plan[$i].Status
-            $item.SubItems[2].ForeColor = Get-StatusColor $Script:Plan[$i].Status
+function Set-StepVisual {
+    param([string]$Key)
+    $step = $Script:Steps | Where-Object { $_.Key -eq $Key } | Select-Object -First 1
+    $ui = $Script:StepRows[$Key]
+    if (-not $step -or -not $ui) { return }
+    switch ($step.Status) {
+        'ok'      { $ui.Marker.Text = [char]0x2713; $ui.Marker.ForeColor = $Script:Green; $ui.Status.Text = 'Ready';    $ui.Status.ForeColor = $Script:Green }
+        'warn'    { $ui.Marker.Text = '!';           $ui.Marker.ForeColor = $Script:Amber; $ui.Status.Text = 'Check';    $ui.Status.ForeColor = $Script:Amber }
+        'error'   { $ui.Marker.Text = [char]0x00D7;  $ui.Marker.ForeColor = $Script:Red;   $ui.Status.Text = 'Problem';  $ui.Status.ForeColor = $Script:Red }
+        'running' { $ui.Marker.Text = [char]0x25CF;  $ui.Marker.ForeColor = $Script:Blue;  $ui.Status.Text = 'Working';  $ui.Status.ForeColor = $Script:Blue }
+        default   { $ui.Marker.Text = [char]0x25CB;  $ui.Marker.ForeColor = $Script:TextDim; $ui.Status.Text = 'Waiting'; $ui.Status.ForeColor = $Script:TextDim }
+    }
+    [System.Windows.Forms.Application]::DoEvents()
+}
+
+function Update-Steps {
+    foreach ($s in $Script:Steps) {
+        $s.Status = Get-StepStatus -Key $s.Key
+        Set-StepVisual -Key $s.Key
+    }
+    $pc = $Script:Steps | Where-Object { $_.Key -eq 'pc' } | Select-Object -First 1
+    $pcUi = $Script:StepRows['pc']
+    if ($pc -and $pcUi) {
+        if ($pc.Status -eq 'ok') {
+            $pcUi.Detail.Text = 'Windows 64-bit, virtualization, Hyper-V, free space'
+        } else {
+            $issues = @(Get-PcIssues)
+            if ($issues.Count -gt 0) { $pcUi.Detail.Text = ($issues -join '  -  ') }
         }
     }
+    $play = $Script:Steps | Where-Object { $_.Key -eq 'play' } | Select-Object -First 1
+    if ($play -and $play.Status -eq 'ok') { $btnMain.Text = 'Launch game' } else { $btnMain.Text = 'Start setup' }
+    [System.Windows.Forms.Application]::DoEvents()
 }
-# NOTE: the first status refresh runs in the form's Shown event, so the window
-# appears immediately instead of waiting for ADB and WMI queries.
 
+# ---- progress -----------------------------------------------------
 $progressBar = New-Object System.Windows.Forms.ProgressBar
-$progressBar.Location = New-Object Drawing.Point(16, 442)
-$progressBar.Size = New-Object Drawing.Size(950, 22)
-$progressBar.Anchor = 'Top,Left,Right'
+$progressBar.Location = New-Object Drawing.Point(20, 420)
+$progressBar.Size = New-Object Drawing.Size(744, 14)
 $form.Controls.Add($progressBar)
 $Script:ProgressBar = $progressBar
 
 $progressLabel = New-Object System.Windows.Forms.Label
 $progressLabel.Text = 'Ready.'
-$progressLabel.Location = New-Object Drawing.Point(16, 468)
-$progressLabel.Size = New-Object Drawing.Size(950, 20)
-$progressLabel.ForeColor = [Drawing.Color]::FromArgb(160, 200, 160)
-$progressLabel.Anchor = 'Top,Left,Right'
+$progressLabel.Location = New-Object Drawing.Point(20, 440)
+$progressLabel.Size = New-Object Drawing.Size(744, 20)
+$progressLabel.ForeColor = $Script:TextDim
 $form.Controls.Add($progressLabel)
 $Script:ProgressLabel = $progressLabel
 
-$logBox = New-Object System.Windows.Forms.TextBox
-$logBox.Location = New-Object Drawing.Point(16, 494)
-$logBox.Size = New-Object Drawing.Size(950, 178)
-$logBox.Multiline = $true
-$logBox.WordWrap = $true
-$logBox.ScrollBars = 'Vertical'
-$logBox.ReadOnly = $true
-$logBox.BackColor = [Drawing.Color]::FromArgb(16, 16, 18)
-$logBox.ForeColor = [Drawing.Color]::FromArgb(170, 220, 170)
-$logBox.Font = New-Object Drawing.Font('Consolas', 9)
-$logBox.Anchor = 'Top,Bottom,Left,Right'
-$form.Controls.Add($logBox)
-$Script:LogBox = $logBox
-
-function New-Button {
-    param([string]$Text, [int]$X, [int]$Width, [int]$Y = 672)
+# ---- buttons ------------------------------------------------------
+function New-FlatButton {
+    param([string]$Text, [int]$X, [int]$Y, [int]$Width, [int]$Height = 36, [switch]$Primary)
     $b = New-Object System.Windows.Forms.Button
     $b.Text = $Text
     $b.Location = New-Object Drawing.Point($X, $Y)
-    $b.Size = New-Object Drawing.Size($Width, 34)
-    $b.Anchor = 'Bottom,Left'
+    $b.Size = New-Object Drawing.Size($Width, $Height)
     $b.FlatStyle = 'Flat'
+    $b.FlatAppearance.BorderSize = 1
+    $b.FlatAppearance.BorderColor = $Script:Border
+    if ($Primary) {
+        $b.BackColor = $Script:Gold
+        $b.ForeColor = [Drawing.Color]::Black
+        $b.FlatAppearance.MouseOverBackColor = [Drawing.Color]::FromArgb(240, 214, 158)
+        $b.Font = New-Object Drawing.Font('Segoe UI', 10, [Drawing.FontStyle]::Bold)
+    } else {
+        $b.BackColor = $Script:Button
+        $b.ForeColor = $Script:TextMain
+        $b.FlatAppearance.MouseOverBackColor = $Script:ButtonHot
+    }
     $form.Controls.Add($b)
     return $b
 }
 
-$btnAll = New-Button -Text 'Install all' -X 16 -Width 150 -Y 680
-$btnAll.BackColor = [Drawing.Color]::FromArgb(222, 196, 140)
-$btnAll.ForeColor = [Drawing.Color]::Black
+$btnMain = New-FlatButton -Text 'Start setup' -X 20 -Y 472 -Width 190 -Height 40 -Primary
+$btnLog = New-FlatButton -Text 'Open log' -X 222 -Y 472 -Width 120 -Height 40
 
-$btnSelected = New-Button -Text 'Install selected' -X 174 -Width 150 -Y 680
-$btnRefresh = New-Button -Text 'Refresh status' -X 332 -Width 130 -Y 680
-$btnLaunch = New-Button -Text 'Launch game' -X 470 -Width 120 -Y 680
-$btnLog = New-Button -Text 'Open log' -X 598 -Width 100 -Y 680
+$lnkRefresh = New-Object System.Windows.Forms.LinkLabel
+$lnkRefresh.Text = 'Refresh'
+$lnkRefresh.Location = New-Object Drawing.Point(596, 484)
+$lnkRefresh.Size = New-Object Drawing.Size(56, 18)
+$lnkRefresh.TextAlign = 'MiddleRight'
+$lnkRefresh.LinkColor = $Script:TextDim
+$lnkRefresh.ActiveLinkColor = $Script:Gold
+$lnkRefresh.LinkBehavior = 'NeverUnderline'
+$form.Controls.Add($lnkRefresh)
 
+$lnkAdvanced = New-Object System.Windows.Forms.LinkLabel
+$lnkAdvanced.Text = 'Advanced...'
+$lnkAdvanced.Location = New-Object Drawing.Point(660, 484)
+$lnkAdvanced.Size = New-Object Drawing.Size(104, 18)
+$lnkAdvanced.TextAlign = 'MiddleRight'
+$lnkAdvanced.LinkColor = $Script:TextDim
+$lnkAdvanced.ActiveLinkColor = $Script:Gold
+$lnkAdvanced.LinkBehavior = 'NeverUnderline'
+$form.Controls.Add($lnkAdvanced)
+
+# ---- server row ---------------------------------------------------
 $serverLabel = New-Object System.Windows.Forms.Label
-$serverLabel.Text = 'Server:'
-$serverLabel.Location = New-Object Drawing.Point(16, 726)
-$serverLabel.Size = New-Object Drawing.Size(55, 20)
-$serverLabel.Anchor = 'Bottom,Left'
+$serverLabel.Text = 'Server'
+$serverLabel.Location = New-Object Drawing.Point(22, 532)
+$serverLabel.Size = New-Object Drawing.Size(56, 20)
+$serverLabel.ForeColor = $Script:TextDim
 $form.Controls.Add($serverLabel)
-
-$btnStartServer = New-Button -Text 'Start' -X 74 -Width 90 -Y 720
-$btnStopServer = New-Button -Text 'Stop' -X 172 -Width 90 -Y 720
-$btnRestartServer = New-Button -Text 'Restart' -X 270 -Width 90 -Y 720
 
 $serverState = New-Object System.Windows.Forms.Label
 $serverState.Text = ''
-$serverState.Location = New-Object Drawing.Point(376, 726)
-$serverState.Size = New-Object Drawing.Size(300, 20)
-$serverState.Anchor = 'Bottom,Left'
+$serverState.Location = New-Object Drawing.Point(84, 532)
+$serverState.Size = New-Object Drawing.Size(240, 20)
 $form.Controls.Add($serverState)
 $Script:ServerStateLabel = $serverState
 
+$btnStartServer = New-FlatButton -Text 'Start' -X 340 -Y 526 -Width 80 -Height 30
+$btnStopServer = New-FlatButton -Text 'Stop' -X 430 -Y 526 -Width 80 -Height 30
+$btnRestartServer = New-FlatButton -Text 'Restart' -X 520 -Y 526 -Width 90 -Height 30
+
+function Update-ServerStateLabel {
+    if (-not $Script:ServerStateLabel) { return }
+    if (Test-ServerRunning) {
+        $Script:ServerStateLabel.Text = [string][char]0x25CF + ' running (ports 8003 / 8080)'
+        $Script:ServerStateLabel.ForeColor = $Script:Green
+    } else {
+        $Script:ServerStateLabel.Text = [string][char]0x25CB + ' stopped'
+        $Script:ServerStateLabel.ForeColor = $Script:TextDim
+    }
+    [System.Windows.Forms.Application]::DoEvents()
+}
+
+# ---- credits ------------------------------------------------------
 $credits = New-Object System.Windows.Forms.Label
 $credits.Text = "Credits: Lunar Tear private server - walter-sparrow-group on GitLab / Walter-Sparrow on GitHub`r`n" +
                 "lunar-scripts patchers (patch_apk.py, patch_masterdata.py) - walter-sparrow-group`r`n" +
                 "Without their work this installer would not exist."
-$credits.ForeColor = [Drawing.Color]::Gray
-$credits.Location = New-Object Drawing.Point(16, 752)
-$credits.Size = New-Object Drawing.Size(950, 46)
-$credits.Anchor = 'Bottom,Left,Right'
+$credits.ForeColor = [Drawing.Color]::FromArgb(110, 110, 118)
+$credits.Location = New-Object Drawing.Point(20, 590)
+$credits.Size = New-Object Drawing.Size(744, 50)
+$credits.Font = New-Object Drawing.Font('Segoe UI', 8)
 $form.Controls.Add($credits)
 
-function Update-ServerStateLabel {
-    if ($Script:ServerStateLabel) {
-        if (Test-ServerRunning) {
-            $Script:ServerStateLabel.Text = 'running (ports 8003 / 8080)'
-            $Script:ServerStateLabel.ForeColor = [Drawing.Color]::FromArgb(0, 160, 0)
-        } else {
-            $Script:ServerStateLabel.Text = 'stopped'
-            $Script:ServerStateLabel.ForeColor = [Drawing.Color]::Gray
-        }
-    }
-}
-
-# ------------------------------------------------ event handlers
-$btnRefresh.Add_Click({
-    Update-Progress -Text 'Checking the current status...' -Indeterminate
-    Refresh-Status -Plan $Script:Plan
-    Sync-List
-    Update-ServerStateLabel
-    Update-Progress -Text 'Status updated.' -Done 0 -Total 0
-})
-
-$btnAll.Add_Click({ Run-Plan -OnlyIds $null })
-
-$btnSelected.Add_Click({
-    $ids = @()
-    foreach ($item in $list.CheckedItems) { $ids += $item.Tag }
-    if ($ids.Count -eq 0) { Update-Progress -Text 'No item selected.' -Done 0 -Total 0; return }
-    Run-Plan -OnlyIds $ids
-})
-
-$btnStartServer.Add_Click({
-    Update-Progress -Text 'Starting the server...' -Indeterminate
-    Action-StartServer | Out-Null
-    Update-ServerStateLabel
-    Refresh-Status -Plan $Script:Plan
-    Sync-List
-    Update-Progress -Text 'Server: started.' -Done 0 -Total 0
-})
-
-$btnStopServer.Add_Click({
-    Update-Progress -Text 'Stopping the server...' -Indeterminate
-    Action-StopServer | Out-Null
-    Update-ServerStateLabel
-    Refresh-Status -Plan $Script:Plan
-    Sync-List
-    Update-Progress -Text 'Server: stopped.' -Done 0 -Total 0
-})
-
-$btnRestartServer.Add_Click({
-    Update-Progress -Text 'Restarting the server...' -Indeterminate
-    Action-RestartServer | Out-Null
-    Update-ServerStateLabel
-    Refresh-Status -Plan $Script:Plan
-    Sync-List
-    Update-Progress -Text 'Server: restarted.' -Done 0 -Total 0
-})
-
-$btnLaunch.Add_Click({
+# ---- actions ------------------------------------------------------
+function Start-Game {
+    Update-Progress -Text 'Launching the game...' -Indeterminate
     if (-not (Test-ServerRunning)) { Action-StartServer | Out-Null }
     if (-not (Test-EmulatorRunning)) {
         & $Paths.MuMuManager control -v 0 launch 2>&1 | Out-Null
@@ -1958,26 +1927,198 @@ $btnLaunch.Add_Click({
         $adb = Get-Adb
         & $adb -s $Script:Serial shell monkey -p $Script:PackageName -c android.intent.category.LAUNCHER 1 2>&1 | Out-Null
         Write-Log 'Game launched.' 'OK'
+        Update-Progress -Text 'Game launched. Have fun.' -Done 0 -Total 0
     } else {
         Write-Log 'Cannot launch the game: the emulator is not running.' 'ERROR'
+        Update-Progress -Text 'The emulator is not running.' -Done 0 -Total 0
     }
+    Update-Steps
     Update-ServerStateLabel
+}
+
+function Invoke-StepAction {
+    param([string]$Key)
+    switch ($Key) {
+        'emulator' { return (Invoke-Action -Action 'InstallEmulator') }
+        'files'    { return (Invoke-Action -Action 'InstallGame') }
+        'client'   { return (Invoke-Action -Action 'InstallClient') }
+        'server'   { return (Invoke-Action -Action 'StartServer') }
+        default    { return $true }
+    }
+}
+
+function Run-Steps {
+    param([string[]]$Keys)
+    $btnMain.Enabled = $false
+    $btnLog.Enabled = $false
+    try {
+        Update-Steps
+        foreach ($key in @('emulator', 'files', 'client', 'server')) {
+            if ($Keys -and ($Keys -notcontains $key)) { continue }
+            $step = $Script:Steps | Where-Object { $_.Key -eq $key } | Select-Object -First 1
+            if (-not $step) { continue }
+            if ($step.Status -eq 'ok') { Write-Log ("Skipping " + $step.Title + ": already done."); continue }
+
+            $step.Status = 'running'
+            Set-StepVisual -Key $key
+            $result = $null
+            try { $result = Invoke-StepAction -Key $key }
+            catch { Write-Log ("Error on " + $step.Title + ": " + $_.Exception.Message) 'ERROR'; $result = $false }
+            Update-Steps
+
+            if ($result -eq $false) {
+                Update-Progress -Text ("Stopped at step " + $step.Number + ": " + $step.Title + ". See the log.") -Done 0 -Total 0
+                [System.Windows.Forms.MessageBox]::Show(
+                    "Step $($step.Number) ($($step.Title)) failed.`r`n`r`nOpen the log for the details.",
+                    'Cage Setup', 'OK', 'Error') | Out-Null
+                return
+            }
+        }
+        Update-Progress -Text 'Done.' -Done 0 -Total 0
+    } finally {
+        $btnMain.Enabled = $true
+        $btnLog.Enabled = $true
+        Update-Steps
+        Update-ServerStateLabel
+    }
+}
+
+function Start-Setup {
+    $pc = $Script:Steps | Where-Object { $_.Key -eq 'pc' } | Select-Object -First 1
+    if ($pc -and $pc.Status -eq 'error') {
+        [System.Windows.Forms.MessageBox]::Show(
+            ("This PC cannot run the installer:`r`n`r`n- " + ((@(Get-PcIssues)) -join "`r`n- ")),
+            'Cage Setup', 'OK', 'Warning') | Out-Null
+        return
+    }
+    Run-Steps -Keys $null
+}
+
+function Show-Advanced {
+    $dlg = New-Object System.Windows.Forms.Form
+    $dlg.Text = 'Advanced'
+    $dlg.Size = New-Object Drawing.Size(470, 336)
+    $dlg.StartPosition = 'CenterParent'
+    $dlg.FormBorderStyle = 'FixedDialog'
+    $dlg.MaximizeBox = $false
+    $dlg.MinimizeBox = $false
+    $dlg.BackColor = $Script:Back
+    $dlg.ForeColor = $Script:TextMain
+    $dlg.Font = New-Object Drawing.Font('Segoe UI', 9)
+
+    $lbl = New-Object System.Windows.Forms.Label
+    $lbl.Text = 'Run only the selected components:'
+    $lbl.Location = New-Object Drawing.Point(16, 14)
+    $lbl.Size = New-Object Drawing.Size(420, 20)
+    $dlg.Controls.Add($lbl)
+
+    $items = @(
+        @{ Key = 'emulator';  Text = 'Emulator (MuMu Player, engine, cleanup)' }
+        @{ Key = 'files';     Text = 'Game files (server, data, client build)' }
+        @{ Key = 'client';    Text = 'Install the client on the emulator' }
+        @{ Key = 'server';    Text = 'Start the server' }
+        @{ Key = 'arm';       Text = 'Check the ARM translation' }
+        @{ Key = 'inventory'; Text = 'Save the package inventory' }
+    )
+    $boxes = @{}
+    $y = 44
+    foreach ($it in $items) {
+        $cb = New-Object System.Windows.Forms.CheckBox
+        $cb.Text = $it.Text
+        $cb.Location = New-Object Drawing.Point(18, $y)
+        $cb.Size = New-Object Drawing.Size(420, 24)
+        $step = $Script:Steps | Where-Object { $_.Key -eq $it.Key } | Select-Object -First 1
+        $cb.Checked = (-not $step) -or ($step.Status -ne 'ok')
+        $dlg.Controls.Add($cb)
+        $boxes[$it.Key] = $cb
+        $y += 30
+    }
+
+    $ok = New-Object System.Windows.Forms.Button
+    $ok.Text = 'Run selected'
+    $ok.Location = New-Object Drawing.Point(232, 246)
+    $ok.Size = New-Object Drawing.Size(130, 32)
+    $ok.FlatStyle = 'Flat'
+    $ok.BackColor = $Script:Gold
+    $ok.ForeColor = [Drawing.Color]::Black
+    $ok.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $dlg.Controls.Add($ok)
+
+    $cancel = New-Object System.Windows.Forms.Button
+    $cancel.Text = 'Cancel'
+    $cancel.Location = New-Object Drawing.Point(368, 246)
+    $cancel.Size = New-Object Drawing.Size(80, 32)
+    $cancel.FlatStyle = 'Flat'
+    $cancel.BackColor = $Script:Button
+    $cancel.ForeColor = $Script:TextMain
+    $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    $dlg.Controls.Add($cancel)
+
+    $dlg.AcceptButton = $ok
+    $dlg.CancelButton = $cancel
+
+    if ($dlg.ShowDialog($form) -ne [System.Windows.Forms.DialogResult]::OK) { return }
+
+    $chosen = @()
+    foreach ($k in $boxes.Keys) { if ($boxes[$k].Checked) { $chosen += $k } }
+    if ($chosen.Count -eq 0) { return }
+
+    Run-Steps -Keys $chosen
+    if ($chosen -contains 'arm') { Action-CheckArmBridge | Out-Null }
+    if ($chosen -contains 'inventory') { Action-Inventory | Out-Null }
+    Update-Steps
+}
+
+# ---- event handlers -----------------------------------------------
+$btnMain.Add_Click({
+    if ($btnMain.Text -eq 'Launch game') { Start-Game } else { Start-Setup }
 })
 
 $btnLog.Add_Click({ if (Test-Path $LogFile) { Start-Process notepad.exe $LogFile } })
+
+$lnkRefresh.Add_LinkClicked({
+    Update-Progress -Text 'Checking the current status...' -Indeterminate
+    Update-Steps
+    Update-ServerStateLabel
+    Update-Progress -Text 'Ready.' -Done 0 -Total 0
+})
+
+$lnkAdvanced.Add_LinkClicked({ Show-Advanced })
+
+$btnStartServer.Add_Click({
+    Update-Progress -Text 'Starting the server...' -Indeterminate
+    Action-StartServer | Out-Null
+    Update-ServerStateLabel
+    Update-Steps
+    Update-Progress -Text 'Server: started.' -Done 0 -Total 0
+})
+
+$btnStopServer.Add_Click({
+    Update-Progress -Text 'Stopping the server...' -Indeterminate
+    Action-StopServer | Out-Null
+    Update-ServerStateLabel
+    Update-Steps
+    Update-Progress -Text 'Server: stopped.' -Done 0 -Total 0
+})
+
+$btnRestartServer.Add_Click({
+    Update-Progress -Text 'Restarting the server...' -Indeterminate
+    Action-RestartServer | Out-Null
+    Update-ServerStateLabel
+    Update-Steps
+    Update-Progress -Text 'Server: restarted.' -Done 0 -Total 0
+})
 
 $form.Add_Shown({
     Write-Log 'Cage Setup started.' 'STEP'
     if (-not (Test-Admin)) { Write-Log 'Tip: run as administrator to install MuMu Player.' 'WARN' }
 
-    # bring the window to the front (without keeping it always on top)
     $form.Activate()
     $form.TopMost = $true
     $form.TopMost = $false
 
     Update-Progress -Text 'Checking the current status...' -Indeterminate
-    Refresh-Status -Plan $Script:Plan
-    Sync-List
+    Update-Steps
     Update-ServerStateLabel
     Update-Progress -Text 'Ready.' -Done 0 -Total 0
 })
