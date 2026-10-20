@@ -66,6 +66,7 @@ apk/out/.build.txt
 # Debug leftovers from development (not part of the installer)
 aehd_install.log
 af?.txt
+accesso-*.png
 analyze*.py
 emu-*.log
 emu-*.wav

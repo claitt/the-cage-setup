@@ -55,10 +55,15 @@ $Config = @{
     # --- Emulator ---
     MuMuInstallerUrl = 'https://api.mumuplayer.com/api/dl/win?channel=gw-overseas12'
 
-    # --- Server binaries (GitHub Releases; the latest version is auto-detected) ---
+    # --- Server binaries (GitHub Releases, pinned to a known version) ---
+    # The installer downloads and runs this software: version and SHA256 are
+    # fixed on purpose. Set ServerUrl to '' to follow the latest release
+    # instead, and clear ServerSha256 (a different archive would not match).
     ServerRepo        = 'Walter-Sparrow/lunar-tear'
     ServerAssetMatch  = 'windows-amd64'
-    ServerUrl         = ''   # leave empty to use the latest GitHub release
+    ServerUrl         = 'https://github.com/Walter-Sparrow/lunar-tear/releases/download/v1.0.2/lunar-tear-server-v1.0.2-windows-amd64.zip'
+    ServerBytes       = 33872763
+    ServerSha256      = 'd8f6330a8f3a8788a89ba8ecfc01a5ff40ab566a9c46d9ff6fd0929503dd5f0a'
     ServerUrlFallback = 'https://github.com/Walter-Sparrow/lunar-tear/releases/download/v1.0.2/lunar-tear-server-v1.0.2-windows-amd64.zip'
 
     # --- Game assets (archive.org) ~14.93 GB download, ~48.8 GB on disk ---
@@ -94,8 +99,10 @@ $Config = @{
     PythonUrl     = 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip'
     PythonBytes   = 11133606
 
-    # --- Patcher scripts, always taken from the upstream repository ---
-    ScriptsRaw    = 'https://gitlab.com/walter-sparrow-group/lunar-scripts/-/raw/main'
+    # --- Patcher scripts, pinned to a commit of the upstream repository ---
+    # Pinned on purpose: an upstream change must not silently alter what this
+    # installer downloads and runs. See the README to update the pin.
+    ScriptsRaw    = 'https://gitlab.com/walter-sparrow-group/lunar-scripts/-/raw/942dced617ea836a0e3abcfc0e0befec42baab11'
 
     # --- Local files (offline use / development) ---
     ServerExe     = Join-Path $Root 'server\wizard.exe'
@@ -225,6 +232,57 @@ function Write-Log {
 function Test-Admin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+# Checks the Authenticode signature of a downloaded installer. Returns $true
+# only for a valid signature from one of the expected publishers.
+function Test-Signature {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [string[]]$Publisher = @()
+    )
+    if (-not (Test-Path $Path)) { return $false }
+    try {
+        $sig = Get-AuthenticodeSignature -FilePath $Path -ErrorAction Stop
+    } catch {
+        Write-Log "Signature check failed for $Path ($($_.Exception.Message))" 'WARN'
+        return $false
+    }
+    if ($sig.Status -ne 'Valid' -or -not $sig.SignerCertificate) {
+        Write-Log "Signature check: $(Split-Path $Path -Leaf) is not validly signed ($($sig.Status))." 'WARN'
+        return $false
+    }
+    $subject = $sig.SignerCertificate.Subject
+    if ($Publisher.Count -gt 0) {
+        $match = $false
+        foreach ($name in $Publisher) { if ($subject -like "*$name*") { $match = $true } }
+        if (-not $match) {
+            Write-Log "Signature check: unexpected publisher for $(Split-Path $Path -Leaf) ($subject)." 'WARN'
+            return $false
+        }
+    }
+    Write-Log "Signature verified: $(Split-Path $Path -Leaf) ($subject)" 'OK'
+    return $true
+}
+
+# Runs the signature check and, when it fails, asks before running an untrusted
+# installer. In console mode a failed check always aborts.
+function Confirm-SignedInstaller {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Publisher,
+        [string]$Label = 'installer'
+    )
+    if (Test-Signature -Path $Path -Publisher @($Publisher)) { return $true }
+    if ($Console -or $InstallAll) {
+        Write-Log "Refusing to run the ${Label}: the signature check failed (non-interactive mode)." 'ERROR'
+        return $false
+    }
+    $message = "The $Label is not signed by $Publisher, or its signature is not valid." + "`r`n`r`n" +
+               "File: $Path" + "`r`n`r`n" +
+               'Continue anyway? Only do this if you downloaded it from the official source.'
+    $answer = [System.Windows.Forms.MessageBox]::Show($message, 'Cage Setup', 'YesNo', 'Warning')
+    return ($answer -eq [System.Windows.Forms.DialogResult]::Yes)
 }
 
 function Get-FreeSpaceGB {
@@ -415,6 +473,7 @@ function Test-ServerFiles {
 }
 
 function Get-MasterDataHash {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingBrokenHashAlgorithms', '', Justification = 'SHA1 is the identifier published with the master data; it is not a security boundary.')]
     param([Parameter(Mandatory)][string]$Path)
     if (-not (Test-Path $Path)) { return '' }
     $info = Get-Item $Path
@@ -465,7 +524,9 @@ function Get-ServerProcesses {
             if ($path -and $path.StartsWith($Paths.ServerDir, [System.StringComparison]::OrdinalIgnoreCase)) {
                 $found += $p
             }
-        } catch { }
+        } catch {
+            Write-Verbose "Cannot read the path of process $($p.Id): $($_.Exception.Message)"
+        }
     }
     $found
 }
@@ -520,6 +581,7 @@ function Update-Progress {
 }
 
 function Send-Download {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingBrokenHashAlgorithms', '', Justification = 'archive.org publishes only SHA1 for the game assets; the server archive is verified with SHA256.')]
     param(
         [Parameter(Mandatory)][string]$Url,
         [Parameter(Mandatory)][string]$Destination,
@@ -645,7 +707,7 @@ function Get-SevenZipPercent {
         $text = [System.Text.Encoding]::Default.GetString($buffer)
         $m = [regex]::Matches($text, '(\d{1,3})%')
         if ($m.Count -gt 0) { return [int]$m[$m.Count - 1].Groups[1].Value }
-    } catch { }
+    } catch { return -1 }
     return -1
 }
 
@@ -802,7 +864,7 @@ function Invoke-Tool {
             if ($detail) { $text += '  ' + $detail }
             Update-Progress -Text $text -Indeterminate
             if ($sw.Elapsed.TotalSeconds -gt $TimeoutSeconds) {
-                try { $proc.Kill() } catch { }
+                try { $proc.Kill() } catch { Write-Verbose "Cannot stop the process: $($_.Exception.Message)" }
                 throw "$Label timed out after $TimeoutSeconds seconds"
             }
             [System.Windows.Forms.Application]::DoEvents()
@@ -1050,7 +1112,7 @@ function Get-ApkmirrorApk {
 
             [int64]$total = $Config.ApkStockBytes
             if ($response.Content.Headers.ContentLength) { $total = [int64]$response.Content.Headers.ContentLength }
-            $input = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+            $streamIn = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
             $output = [System.IO.File]::Open($partial, 'Create', 'Write')
             $buffer = New-Object byte[] 1048576
             [int64]$done = 0
@@ -1060,7 +1122,7 @@ function Get-ApkmirrorApk {
             $speed = 0.0
             try {
                 while ($true) {
-                    $read = $input.Read($buffer, 0, $buffer.Length)
+                    $read = $streamIn.Read($buffer, 0, $buffer.Length)
                     if ($read -le 0) { break }
                     $output.Write($buffer, 0, $read)
                     $done += $read
@@ -1074,7 +1136,7 @@ function Get-ApkmirrorApk {
                 }
             } finally {
                 $output.Close()
-                $input.Close()
+                $streamIn.Close()
                 $response.Dispose()
             }
         } finally {
@@ -1235,7 +1297,6 @@ function Build-ClientApk {
 # =====================================================================
 function Watch-MuMuInstall {
     param(
-        $Process,
         [int64]$InitialSize = 0,
         [int]$TimeoutSeconds = 3600,
         [switch]$Hide,
@@ -1309,6 +1370,12 @@ function Action-InstallMuMu {
     $setupName = [System.IO.Path]::GetFileNameWithoutExtension($setup)
     if ($setupName -and ($Script:HideProcessNames -notcontains $setupName)) { $Script:HideProcessNames += $setupName }
 
+    # the installer runs elevated: check who signed it before handing it UAC
+    if (-not (Confirm-SignedInstaller -Path $setup -Publisher 'Netease' -Label 'MuMu Player installer')) {
+        Write-Log 'Emulator: installation cancelled, the MuMu installer signature is not trusted.' 'ERROR'
+        return $false
+    }
+
     # 1st attempt: silent (hidden window). 2nd attempt: visible, if the first gets stuck.
     foreach ($attempt in 1..2) {
         $hide = ($attempt -eq 1)
@@ -1318,8 +1385,8 @@ function Action-InstallMuMu {
             Write-Log 'Second attempt with the window VISIBLE (the first attempt was stuck).' 'WARN'
         }
         [int64]$before = Get-FolderSize $Paths.MuMuDir
-        $proc = Start-Process -FilePath $setup -ArgumentList '/S', '/fchannel=gw-overseas12', '/auto_start=false' -Verb RunAs -PassThru
-        $result = Watch-MuMuInstall -Process $proc -InitialSize $before -Hide:$hide
+        Start-Process -FilePath $setup -ArgumentList '/S', '/fchannel=gw-overseas12', '/auto_start=false' -Verb RunAs | Out-Null
+        $result = Watch-MuMuInstall -InitialSize $before -Hide:$hide
         if ($result -eq 'ok') { break }
         if ($result -eq 'stall') {
             Write-Log 'Closing the MuMu processes and retrying with the window visible.' 'WARN'
@@ -1381,7 +1448,20 @@ function Action-GetServerBinaries {
     if (-not $url) { Write-Log 'No URL available for the server binaries' 'ERROR'; return $false }
 
     $zip = Join-Path $Paths.Downloads 'lunar-tear-server.zip'
-    Send-Download -Url $url -Destination $zip -Label 'Server binaries' | Out-Null
+    Send-Download -Url $url -Destination $zip -Label 'Server binaries' -Bytes $Config.ServerBytes | Out-Null
+
+    if ($Config.ServerSha256 -and $url -eq $Config.ServerUrl) {
+        Update-Progress -Text 'Verifying the server archive...' -Indeterminate
+        $hash = (Get-FileHash $zip -Algorithm SHA256).Hash
+        if ($hash -ne $Config.ServerSha256.ToUpper()) {
+            Remove-Item $zip -Force -ErrorAction SilentlyContinue
+            Write-Log "Server archive checksum mismatch: expected $($Config.ServerSha256), got $hash. The file was removed, please retry." 'ERROR'
+            return $false
+        }
+        Write-Log 'Server archive verified (SHA256)' 'OK'
+    } elseif ($Config.ServerSha256) {
+        Write-Log 'Custom server URL: the pinned checksum was not applied.' 'WARN'
+    }
 
     $tmp = Join-Path $env:TEMP ('lunartear-bin-' + [guid]::NewGuid().ToString('N'))
     Update-Progress -Text 'Extracting the server binaries...' -Indeterminate
@@ -1401,6 +1481,7 @@ function Action-GetServerBinaries {
 }
 
 function Invoke-MasterDataPatch {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingBrokenHashAlgorithms', '', Justification = 'The reference patched file is identified by its SHA1, as published by the upstream project.')]
     param(
         [Parameter(Mandatory)][string]$InputFile,
         [Parameter(Mandatory)][string]$OutputFile
@@ -1635,6 +1716,7 @@ function Invoke-Action {
 # =====================================================================
 if ($Console -or $InstallAll) {
     Write-Host '=== CAGE SETUP - diagnostics ===' -ForegroundColor Cyan
+    Write-Host ('Root folder           : ' + $Root)
     Write-Host ('Windows 64-bit        : ' + [Environment]::Is64BitOperatingSystem)
     Write-Host ('Administrator         : ' + (Test-Admin))
     Write-Host ('Virtualization        : ' + (Test-VirtualizationEnabled))
@@ -1698,7 +1780,7 @@ $form.Font = New-Object Drawing.Font('Segoe UI', 9)
 
 # Packed as an executable: use the icon embedded in CageSetup.exe.
 if ($HostExe -and (Split-Path -Leaf $HostExe) -notmatch '^(powershell|pwsh)(_ise)?\.exe$') {
-    try { $form.Icon = [Drawing.Icon]::ExtractAssociatedIcon($HostExe) } catch { }
+    try { $form.Icon = [Drawing.Icon]::ExtractAssociatedIcon($HostExe) } catch { Write-Verbose "Cannot load the icon: $($_.Exception.Message)" }
 }
 
 $title = New-Object System.Windows.Forms.Label

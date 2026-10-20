@@ -130,6 +130,19 @@ Invoke-PS2EXE -InputFile "Cage Setup.ps1" -OutputFile "CageSetup.exe" `
 The exact command used by the automated build is in
 [`.github/workflows/build.yml`](.github/workflows/build.yml).
 
+### Verify the download
+
+Every release is built by that workflow and comes with a
+[build provenance attestation](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations).
+With the GitHub CLI installed:
+
+```
+gh attestation verify CageSetup.exe --repo claitt/cage-setup
+```
+
+`CageSetup.exe.sha256` contains the SHA256 of the file, and the script itself
+can always be read in this repository or run directly.
+
 ### Or run the script directly
 
 No executable is required. From a PowerShell window in this folder:
@@ -149,7 +162,7 @@ the `.ps1` does not run it: Windows opens `.ps1` files in an editor.
 
 | Resource | Host | Size |
 |---|---|---|
-| Server binaries | [GitHub Releases](https://github.com/Walter-Sparrow/lunar-tear/releases) (latest version is detected automatically) | ~33 MB |
+| Server binaries | [GitHub Releases](https://github.com/Walter-Sparrow/lunar-tear/releases) (pinned to v1.0.2 and verified with SHA256) | ~33 MB |
 | Game assets | [archive.org: nier_reincarnation_assets](https://archive.org/details/nier_reincarnation_assets) | 14.93 GB (~48.8 GB extracted) |
 | Master data | [archive.org: 20240404193219.bin](https://archive.org/details/20240404193219.bin) | 7.4 MB (patched locally) |
 | Game client (APK) | [APKMirror: NieR Re[in]carnation 3.7.1](https://www.apkmirror.com/apk/square-enix-co-ltd/nier-reincarnation/nier-reincarnation-3-7-1-release/) | 251 MB (patched locally) |
@@ -182,6 +195,23 @@ Optional overrides:
 | `JreUrl` / `ApktoolUrl` / `BuildToolsUrl` / `PythonUrl` | Mirror for the toolchain |
 | `ScriptsRaw` | Base URL of the `lunar-scripts` raw files (pin a commit to freeze the patcher version) |
 
+### Pinned sources
+
+Two things are pinned so that a new build cannot change silently:
+
+| What | Where | How to update |
+|---|---|---|
+| Patcher scripts | `ScriptsRaw` points to a commit of `lunar-scripts`, not to `main` | copy the new commit hash from GitLab into the URL |
+| Server binaries | `ServerUrl`, `ServerBytes`, `ServerSha256` | download the new release archive, copy its size and SHA256 into `$Config` |
+
+The server archive is verified (SHA256) before it is extracted. The MuMu
+installer is checked with its Authenticode signature (the publisher must contain
+"Netease") before it is launched elevated; if the check fails, the GUI asks for
+confirmation and the console mode aborts.
+
+To follow the latest server release again, set `ServerUrl` to an empty string
+and clear `ServerSha256`.
+
 ### Do not commit these files
 
 `.gitignore` already excludes the APK, the assets, the master data, the
@@ -211,6 +241,28 @@ installer patched is left untouched (it is assumed to be intentional).
 
 ---
 
+## Development
+
+The installer is a single PowerShell file on purpose: the executable is that
+file, so what you read is what runs.
+
+```
+# lint
+Invoke-ScriptAnalyzer -Path "Cage Setup.ps1" -Settings PSScriptAnalyzerSettings.psd1
+
+# tests (Pester 5)
+Invoke-Pester -Path tests -Output Detailed
+
+# diagnostics, no GUI
+powershell -ExecutionPolicy Bypass -File "Cage Setup.ps1" -Console
+```
+
+The GitHub workflow runs the same commands, then builds the executable and
+smoke-tests it: it starts the packed script with `-Console` and checks that the
+output is complete and that the script resolves its own folder.
+
+---
+
 ## Troubleshooting
 
 **Windows says "Windows protected your PC", or the antivirus flags the executable.**
@@ -229,6 +281,11 @@ To see the actual error, open a PowerShell window in this folder and run:
 ```
 powershell -NoProfile -ExecutionPolicy Bypass -File "Cage Setup.ps1"
 ```
+
+**The installer asks whether to run the MuMu installer.**
+Its Authenticode signature is not valid, or it was not signed by NetEase. That
+is what happens with a modified or repackaged offline package: answer **No**
+unless the file comes from the official source.
 
 **The MuMu window stays hidden for a long time.**
 The silent installation hides MuMu's own windows. If no progress is detected for
@@ -263,6 +320,16 @@ it as `apk\stock\nier-3.7.1-stock.apk` and press the button again.
 adb -s 127.0.0.1:7555 shell pm install-existing <package>
 adb -s 127.0.0.1:7555 shell pm enable --user 0 <package>
 ```
+
+---
+
+## License
+
+The installer code is released under the [MIT License](LICENSE).
+
+That covers this repository only: NieR Re[in]carnation and its assets belong to
+Square Enix, while the Lunar Tear server and the lunar-scripts patchers remain
+their own projects with their own authors. No game content is distributed here.
 
 ---
 

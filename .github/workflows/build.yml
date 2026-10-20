@@ -3,6 +3,9 @@ name: Build CageSetup.exe
 # The repository ships the installer as a readable PowerShell script.
 # This workflow turns that exact script into CageSetup.exe, so the executable
 # can be reproduced by anyone: no build step happens outside this file.
+#
+# It runs the linter and the Pester tests, packs the script, smoke-tests the
+# packed executable, and (on tags) publishes it with a build attestation.
 
 on:
   workflow_dispatch:
@@ -12,15 +15,18 @@ on:
 
 permissions:
   contents: write
+  id-token: write        # build provenance attestation
+  attestations: write
 
 jobs:
   build:
     name: Pack the script into an executable
     runs-on: windows-latest
+    timeout-minutes: 20
 
     steps:
       - name: Check out the source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Work out the version
         id: version
@@ -45,14 +51,34 @@ jobs:
           }
           Write-Host 'Cage Setup.ps1 parses without errors.'
 
-      - name: Install ps2exe
+      - name: Install the build tools
         shell: powershell
         run: |
           if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
             Install-PackageProvider -Name NuGet -Force -Scope CurrentUser
           }
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
-          Install-Module ps2exe -Scope CurrentUser -Force -AllowClobber
+          Install-Module ps2exe, PSScriptAnalyzer -Scope CurrentUser -Force -AllowClobber -Confirm:$false
+          Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force -SkipPublisherCheck -Confirm:$false
+
+      - name: Lint the script
+        shell: powershell
+        run: |
+          $findings = Invoke-ScriptAnalyzer -Path 'Cage Setup.ps1' -Settings 'PSScriptAnalyzerSettings.psd1'
+          if ($findings) {
+            $findings | ForEach-Object {
+              Write-Host "::error file=$($_.ScriptName),line=$($_.Line)::$($_.RuleName): $($_.Message)"
+            }
+            exit 1
+          }
+          Write-Host 'PSScriptAnalyzer: no findings.'
+
+      - name: Run the Pester tests
+        shell: powershell
+        run: |
+          $result = Invoke-Pester -Path 'tests' -Output Detailed -PassThru
+          if ($result.FailedCount -gt 0) { exit 1 }
+          Write-Host "Pester: $($result.PassedCount) passed, $($result.SkippedCount) skipped."
 
       - name: Build CageSetup.exe
         shell: powershell
@@ -73,15 +99,50 @@ jobs:
           "$hash  CageSetup.exe" | Set-Content 'dist\CageSetup.exe.sha256' -Encoding ASCII
           Get-Item 'dist\CageSetup.exe' | Select-Object Name, Length
 
+      - name: Smoke-test the packed executable
+        shell: powershell
+        run: |
+          # The packed script must start, report its diagnostics and resolve its
+          # own folder (a plain .ps1 would use the script folder instead).
+          New-Item -ItemType Directory -Force 'dist\smoke' | Out-Null
+          Invoke-PS2EXE -InputFile 'Cage Setup.ps1' -OutputFile 'dist\smoke\CageSetup-smoke.exe' `
+                        -STA -iconFile 'assets\cage.ico' -title 'Cage Setup' -product 'Cage Setup'
+          $output = & 'dist\smoke\CageSetup-smoke.exe' -Console 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Write-Host "The packed installer exited with code $code"
+            Write-Host $output
+            exit 1
+          }
+          if ($output -notmatch '=== CAGE SETUP - diagnostics ===') {
+            Write-Host 'The diagnostics marker was not found in the output.'
+            Write-Host $output
+            exit 1
+          }
+          $expected = (Resolve-Path 'dist\smoke').Path
+          if ($output -notmatch "(?i)Root folder\s+:\s+$([regex]::Escape($expected))") {
+            Write-Host "The executable resolved the wrong root folder (expected $expected)."
+            Write-Host $output
+            exit 1
+          }
+          Write-Host 'Smoke test passed: the packed script starts and uses its own folder.'
+
+      - name: Attest the build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: dist/CageSetup.exe
+
       - name: Upload the build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: CageSetup-${{ steps.version.outputs.version }}
-          path: dist/*
+          path: |
+            dist/CageSetup.exe
+            dist/CageSetup.exe.sha256
 
       - name: Attach the build to the release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
             dist/CageSetup.exe
