@@ -11,12 +11,11 @@
 #   - Lunar Tear private server:  https://gitlab.com/walter-sparrow-group/lunar-tear
 #                                 https://github.com/Walter-Sparrow/lunar-tear
 #   - lunar-scripts patchers:     https://gitlab.com/walter-sparrow-group/lunar-scripts
-#   - Game assets (archive.org):  https://archive.org/details/nier_reincarnation_assets
-#   - Master data (archive.org):  https://archive.org/details/20240404193219.bin
-#   - Stock APK:                  https://www.apkmirror.com/apk/square-enix-co-ltd/nier-reincarnation/
-#   - apktool (iBotPeaches), Android build tools (Google), Temurin JRE (Adoptium),
-#     Python (python.org), PyCryptodome/msgpack/lz4 (PyPI)
-#   - MuMu Player:                NetEase
+#
+#  Without their work this installer would not exist: the server, the client
+#  patch and the master data patch are all built on the Lunar Tear project and
+#  on the lunar-scripts tooling. Cage Setup only automates the steps around
+#  them. Every other file is downloaded from its official source at runtime.
 #
 #  This package does NOT contain any game APK, game assets or master data:
 #  the stock APK is downloaded from APKMirror and patched on this PC with the
@@ -1883,10 +1882,12 @@ $form.Controls.Add($serverState)
 $Script:ServerStateLabel = $serverState
 
 $credits = New-Object System.Windows.Forms.Label
-$credits.Text = 'Credits: Lunar Tear by walter-sparrow-group  |  lunar-scripts patchers  |  stock APK from APKMirror  |  assets and master data via archive.org  |  MuMu Player by NetEase'
+$credits.Text = "Credits: Lunar Tear private server - walter-sparrow-group on GitLab / Walter-Sparrow on GitHub`r`n" +
+                "lunar-scripts patchers (patch_apk.py, patch_masterdata.py) - walter-sparrow-group`r`n" +
+                "Without their work this installer would not exist."
 $credits.ForeColor = [Drawing.Color]::Gray
-$credits.Location = New-Object Drawing.Point(16, 766)
-$credits.Size = New-Object Drawing.Size(950, 18)
+$credits.Location = New-Object Drawing.Point(16, 752)
+$credits.Size = New-Object Drawing.Size(950, 46)
 $credits.Anchor = 'Bottom,Left,Right'
 $form.Controls.Add($credits)
 

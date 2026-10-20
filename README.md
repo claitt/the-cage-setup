@@ -193,18 +193,11 @@ adb -s 127.0.0.1:7555 shell pm enable --user 0 <package>
 
 - **Lunar Tear** private server - [walter-sparrow-group on GitLab](https://gitlab.com/walter-sparrow-group/lunar-tear) / [Walter-Sparrow on GitHub](https://github.com/Walter-Sparrow/lunar-tear)
 - **lunar-scripts** patchers (`patch_apk.py`, `patch_masterdata.py`) - [walter-sparrow-group](https://gitlab.com/walter-sparrow-group/lunar-scripts)
-- **Game assets** - [nier_reincarnation_assets](https://archive.org/details/nier_reincarnation_assets) on archive.org
-- **Master data** - [20240404193219.bin](https://archive.org/details/20240404193219.bin) on archive.org
-- **Stock APK** - [APKMirror](https://www.apkmirror.com/apk/square-enix-co-ltd/nier-reincarnation/)
-- **apktool** - [iBotPeaches](https://github.com/iBotPeaches/Apktool), Apache License 2.0
-- **Android SDK Build-Tools** (`zipalign`, `apksigner`) - Google, Apache License 2.0
-- **Eclipse Temurin JRE** - [Adoptium](https://adoptium.net/), GPLv2 with Classpath Exception
-- **Python** - [python.org](https://www.python.org/), PSF License
-- **PyCryptodome / msgpack / lz4** - PyPI packages used by the master data patcher
-- **MuMu Player** - NetEase
-- **7-Zip** reduced console version (`7zr.exe`) - Igor Pavlov, public domain
-- **curl** - Daniel Stenberg and contributors, shipped with Windows
+
+**Without their work this installer would not exist.** The server, the client
+patch and the master data patch are all built on the Lunar Tear project and on
+the lunar-scripts tooling; Cage Setup only automates the steps around them.
 
 NieR Re[in]carnation and all related assets are property of Square Enix.
 This project is a community preservation effort and is not affiliated with
-Square Enix or NetEase.
+Square Enix, NetEase or the Lunar Tear project.
