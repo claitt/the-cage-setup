@@ -1,11 +1,11 @@
-﻿# =====================================================================
-#  LUNAR TEAR - Installer for NieR Re[in]carnation (private server)
+# =====================================================================
+#  CAGE SETUP - Installer for NieR Re[in]carnation (private server)
 #  ------------------------------------------------------------------
 #  Guided GUI that downloads, installs and configures everything.
 #  Every download shows status, percentage, speed and estimated time.
 #
-#  Normal use:  double-click "Installer Lunar Tear.cmd"
-#  Diagnostics: powershell -ExecutionPolicy Bypass -File "Installer Lunar Tear.ps1" -Console
+#  Normal use:  double-click "Cage Setup.cmd"
+#  Diagnostics: powershell -ExecutionPolicy Bypass -File "Cage Setup.ps1" -Console
 #
 #  CREDITS
 #   - Lunar Tear private server:  https://gitlab.com/walter-sparrow-group/lunar-tear
@@ -102,7 +102,6 @@ $Paths = @{
     MuMuManager      = 'C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe'
     MuMuInstaller    = Join-Path $Root 'tools\mumu\MuMu-installer.exe'
     MuMuInstallerOff = Join-Path $Root 'tools\mumu\offline\MuMuNG-offline-setup.exe'
-    Debloat          = Join-Path $Root 'tools\mumu\debloat-mumu.ps1'
     SevenZip         = Join-Path $Root 'tools\7zr.exe'
     ServerDir        = Join-Path $Root 'server'
     AssetsDir        = Join-Path $Root 'server\assets'
@@ -305,6 +304,46 @@ function Test-DebloatApplied {
     $adb = Get-Adb
     $r = (& $adb -s $Script:Serial shell pm list packages --user 0 com.mumu.store 2>&1) -join ''
     return (-not ($r -match 'com.mumu.store'))
+}
+
+# Removes only the NetEase/MuMu components; the game, Google services
+# (GMS/GSF/Play Store) and the rest of Android are untouched.
+# Everything is reversible:
+#   pm install-existing <pkg>      (restore a removed package)
+#   pm enable --user 0 <pkg>       (re-enable a disabled package)
+function Invoke-MuMuDebloat {
+    $adb = Get-Adb
+    if (-not $adb) { Write-Log 'adb not found: cannot apply the debloat' 'ERROR'; return $false }
+
+    $remove = @(
+        'com.mumu.store',             # MuMu app store
+        'com.mumu.shared.sdk',        # MuMu shared SDK
+        'com.mumu.acc',               # MuMu account
+        'com.nemu.nlp',               # NetEase NLP service
+        'com.nemu.oaidmanager',       # OAID / advertising id
+        'com.netease.mumu.cloner'     # app cloner
+    )
+    $disable = @(
+        'com.sohu.inputmethod.sogou.chuizi'   # Chinese Sogou keyboard (the only system IME)
+    )
+
+    foreach ($p in $remove) {
+        $r = (& $adb -s $Script:Serial shell pm uninstall --user 0 $p 2>&1) -join ' '
+        Write-Log ("{0,-40} -> {1}" -f $p, $r.Trim())
+        [Windows.Forms.Application]::DoEvents()
+    }
+    foreach ($p in $disable) {
+        $r = (& $adb -s $Script:Serial shell pm disable-user --user 0 $p 2>&1) -join ' '
+        Write-Log ("{0,-40} -> {1}" -f $p, $r.Trim())
+        [Windows.Forms.Application]::DoEvents()
+    }
+    foreach ($p in ($remove + $disable)) {
+        $active = (& $adb -s $Script:Serial shell pm list packages --user 0 $p 2>&1) -join ''
+        $off    = (& $adb -s $Script:Serial shell pm list packages -d $p 2>&1) -join ''
+        $state = if (-not $active) { 'REMOVED' } elseif ($off) { 'DISABLED' } else { 'STILL ACTIVE' }
+        Write-Log ("{0,-40} {1}" -f $p, $state)
+    }
+    return $true
 }
 
 function Test-ArmBridge {
@@ -1250,15 +1289,13 @@ function Action-WaitEngine {
 
 function Action-Debloat {
     Write-Log 'Configuration: removing NetEase/MuMu bloatware' 'STEP'
-    if (-not (Test-Path $Paths.Debloat)) { Write-Log "Debloat script missing: $($Paths.Debloat)" 'WARN'; return $false }
     if (-not (Test-EmulatorRunning)) {
         Write-Log 'Starting the emulator to apply the debloat...'
         & $Paths.MuMuManager control -v 0 launch 2>&1 | Out-Null
         for ($i = 0; $i -lt 40; $i++) { Start-Sleep -Seconds 3; if (Test-EmulatorRunning) { break }; [Windows.Forms.Application]::DoEvents() }
     }
     Update-Progress -Text 'Applying the debloat...' -Indeterminate
-    $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $Paths.Debloat 2>&1
-    $out | ForEach-Object { Write-Log $_ }
+    Invoke-MuMuDebloat | Out-Null
     if (Test-DebloatApplied) { Write-Log 'Debloat applied and verified' 'OK'; return $true }
     Write-Log 'Debloat not confirmed' 'WARN'; return $false
 }
@@ -1267,7 +1304,7 @@ function Get-LatestServerUrl {
     $api = "https://api.github.com/repos/$($Config.ServerRepo)/releases/latest"
     try {
         $r = Invoke-RestMethod -Uri $api -Method Get -TimeoutSec 30 `
-                -Headers @{ 'User-Agent' = 'lunar-tear-installer'; 'Accept' = 'application/vnd.github+json' }
+                -Headers @{ 'User-Agent' = 'cage-setup'; 'Accept' = 'application/vnd.github+json' }
         $asset = $r.assets | Where-Object { $_.name -like "*$($Config.ServerAssetMatch)*.zip" } | Select-Object -First 1
         if ($asset) {
             Write-Log ('Latest server release: {0} - {1} ({2})' -f $r.tag_name, $asset.name, (Format-Size $asset.size))
@@ -1664,7 +1701,7 @@ function Run-Plan {
 #  CONSOLE / DIAGNOSTICS
 # =====================================================================
 if ($Console -or $InstallAll) {
-    Write-Host '=== LUNAR TEAR - diagnostics ===' -ForegroundColor Cyan
+    Write-Host '=== CAGE SETUP - diagnostics ===' -ForegroundColor Cyan
     Write-Host ('Windows 64-bit        : ' + [Environment]::Is64BitOperatingSystem)
     Write-Host ('Administrator         : ' + (Test-Admin))
     Write-Host ('Virtualization        : ' + (Test-VirtualizationEnabled))
@@ -1705,7 +1742,7 @@ if ($Console -or $InstallAll) {
 [System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false)
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'Lunar Tear - NieR Re[in]carnation private server installer'
+$form.Text = 'Cage Setup - NieR Re[in]carnation private server installer'
 $form.Size = New-Object Drawing.Size(1000, 850)
 $form.MinimumSize = New-Object Drawing.Size(880, 760)
 $form.StartPosition = 'CenterScreen'
@@ -1714,7 +1751,7 @@ $form.ForeColor = [Drawing.Color]::Gainsboro
 $form.Font = New-Object Drawing.Font('Segoe UI', 9)
 
 $title = New-Object System.Windows.Forms.Label
-$title.Text = 'LUNAR TEAR - Guided installation'
+$title.Text = 'CAGE SETUP - Guided installation'
 $title.Font = New-Object Drawing.Font('Segoe UI', 14, [Drawing.FontStyle]::Bold)
 $title.ForeColor = [Drawing.Color]::FromArgb(222, 196, 140)
 $title.Location = New-Object Drawing.Point(16, 12)
@@ -1929,7 +1966,7 @@ $btnLaunch.Add_Click({
 $btnLog.Add_Click({ if (Test-Path $LogFile) { Start-Process notepad.exe $LogFile } })
 
 $form.Add_Shown({
-    Write-Log 'Lunar Tear installer started.' 'STEP'
+    Write-Log 'Cage Setup started.' 'STEP'
     if (-not (Test-Admin)) { Write-Log 'Tip: run as administrator to install MuMu Player.' 'WARN' }
 
     # bring the window to the front (without keeping it always on top)

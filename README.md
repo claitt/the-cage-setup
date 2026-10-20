@@ -1,7 +1,7 @@
-# Lunar Tear Installer
+# Cage Setup
 
-A guided Windows installer for the **NieR Re[in]carnation** private server
-([Lunar Tear](https://gitlab.com/walter-sparrow-group/lunar-tear), mirrored on
+An unofficial, guided Windows installer for the **NieR Re[in]carnation** private
+server ([Lunar Tear](https://gitlab.com/walter-sparrow-group/lunar-tear), mirrored on
 [GitHub](https://github.com/Walter-Sparrow/lunar-tear)).
 
 Double-click, press **Install all**, and the installer downloads, installs and
@@ -34,7 +34,7 @@ at a glance whether the PC is ready.
 
 ## Usage
 
-1. Double-click **`Installer Lunar Tear.cmd`** (it asks for administrator rights).
+1. Double-click **`Cage Setup.cmd`** (it asks for administrator rights).
 2. Wait for the status check to finish.
 3. Press **Install all** (about 20 GB of downloads), or tick only what you need.
 4. When it is done, press **Launch game**.
@@ -108,7 +108,7 @@ The downloaded archives are verified against their SHA1 hash where one is known.
 
 ## Configuration (for distributors)
 
-Open `Installer Lunar Tear.ps1` and edit the `$Config` block at the top.
+Open `Cage Setup.ps1` and edit the `$Config` block at the top.
 No value has to be filled in: every source already points to a public host.
 
 Optional overrides:

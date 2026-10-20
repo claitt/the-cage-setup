@@ -1,15 +1,15 @@
 @echo off
 rem ===================================================================
-rem  Lunar Tear - installer for NieR Re[in]carnation
+rem  Cage Setup - installer for NieR Re[in]carnation
 rem  Launches the guided installation GUI.
 rem  Administrator rights (UAC) are needed to install MuMu Player:
 rem  they are requested automatically here.
 rem ===================================================================
 setlocal
-set "PS1=%~dp0Installer Lunar Tear.ps1"
+set "PS1=%~dp0Cage Setup.ps1"
 
 if not exist "%PS1%" (
-  echo ERROR: cannot find "Installer Lunar Tear.ps1" next to this file.
+  echo ERROR: cannot find "Cage Setup.ps1" next to this file.
   pause
   exit /b 1
 )
