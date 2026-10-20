@@ -145,6 +145,88 @@ Describe 'Emulator discovery' {
     }
 }
 
+Describe 'Pinned downloads' {
+    It 'pins every toolchain archive with its size and SHA256' {
+        $toolchain = @(
+            @{ Url = 'JreUrl';        Bytes = 'JreBytes';        Sha = 'JreSha256' }
+            @{ Url = 'ApktoolUrl';    Bytes = 'ApktoolBytes';    Sha = 'ApktoolSha256' }
+            @{ Url = 'BuildToolsUrl'; Bytes = 'BuildToolsBytes'; Sha = 'BuildToolsSha256' }
+            @{ Url = 'PythonUrl';     Bytes = 'PythonBytes';     Sha = 'PythonSha256' }
+        )
+        foreach ($item in $toolchain) {
+            $Config[$item.Url] | Should -Match '^https://'
+            $Config[$item.Bytes] | Should -BeGreaterThan 0
+            $Config[$item.Sha] | Should -Match '^[0-9a-f]{64}$'
+        }
+    }
+
+    It 'pins the stock APK to its size and SHA256' {
+        $Config.ApkStockBytes | Should -BeGreaterThan 0
+        $Config.ApkStockSha256 | Should -Match '^[0-9a-f]{64}$'
+    }
+}
+
+Describe 'Disk space planning' {
+    It 'adds the extraction size to the part of the download that is left' {
+        Get-AssetsDiskRequirementGB -TotalBytes (15GB) -DownloadedBytes 0 | Should -Be 66
+    }
+
+    It 'asks for less when the download is partly on disk' {
+        Get-AssetsDiskRequirementGB -TotalBytes (15GB) -DownloadedBytes (10GB) | Should -Be 56
+    }
+}
+
+Describe 'Cancellation' {
+    AfterEach { $Script:CancelRequested = $false }
+
+    It 'does not throw while no cancel was requested' {
+        { Assert-NotCancelled } | Should -Not -Throw
+    }
+
+    It 'stops a running operation with an OperationCanceledException' {
+        $Script:CancelRequested = $true
+        { Assert-NotCancelled } | Should -Throw -ExceptionType ([System.OperationCanceledException])
+    }
+}
+
+Describe 'Port conflicts' {
+    It 'finds the process listening on a port' {
+        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+        $listener.Start()
+        try {
+            $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+            $owner = Get-PortOwner -Port $port
+            $owner | Should -Not -BeNullOrEmpty
+            $owner.Port | Should -Be $port
+            $owner.ProcessId | Should -Be $PID
+        } finally {
+            $listener.Stop()
+        }
+    }
+
+    It 'treats a listener owned by another program as a conflict' {
+        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+        $listener.Start()
+        try {
+            $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+            $conflict = @(Get-ServerPortConflicts -Ports $port)
+            $conflict.Count | Should -Be 1
+            $conflict[0].Port | Should -Be $port
+        } finally {
+            $listener.Stop()
+        }
+    }
+}
+
+Describe 'Diagnostics' {
+    It 'returns a copyable block with the version and the environment' {
+        $text = Get-DiagnosticsText
+        $text | Should -Match ([regex]::Escape('Cage Setup ' + $Script:AppVersion))
+        $text | Should -Match 'Root\s+:'
+        $text | Should -Match 'Server\s+:'
+    }
+}
+
 Describe 'Server archive' {
     It 'matches the pinned SHA256 when the archive has been downloaded' {
         $zip = Join-Path $Paths.Downloads 'lunar-tear-server.zip'

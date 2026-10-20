@@ -45,6 +45,11 @@ it. A pull request that changes the script must keep those green.
 - `lunar-scripts`: copy the full commit hash from GitLab into `ScriptsRaw`.
 - Server: copy the release URL, size and SHA256 into `ServerUrl`, `ServerBytes`
   and `ServerSha256` (see the README, "Pinned sources").
+- Toolchain and stock APK: copy the new file's size and SHA256 into the matching
+  `*Bytes` / `*Sha256` values in `$Config`. The installer verifies the hash before
+  it unpacks or runs anything; a mismatch deletes the file and fails the step.
+- Assets and master data keep their SHA1 pins: those are the checksums published
+  by archive.org.
 
 ## Commits and releases
 

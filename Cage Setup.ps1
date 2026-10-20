@@ -33,6 +33,7 @@
 #   INSTALLATION ACTIONS .... the individual installation steps
 #   COMPOSITE ACTIONS ....... grouped steps used by the GUI
 #   EXECUTION ENGINE ........ runs the steps and reports the result
+#   SUPPORT ................. one copyable diagnostics block for issue reports
 #   CONSOLE / DIAGNOSTICS ... -Console output
 #   GUI ..................... the window, the six steps, update check
 # =====================================================================
@@ -114,7 +115,7 @@ $LogFile = Join-Path $Root 'installer-log.txt'
 
 # Version of the installer: this is the single source of truth. The build
 # workflow reads this line and refuses to build a tag that does not match it.
-$Script:AppVersion = '1.2.0'
+$Script:AppVersion = '1.3.0'
 
 # ---------------------------------------------------------------------
 #  SOURCES AND PATHS  (edit here when you redistribute the installer)
@@ -148,6 +149,7 @@ $Config = @{
     #     locally, so no game binary is redistributed with this package.
     ApkPageUrl    = 'https://www.apkmirror.com/apk/square-enix-co-ltd/nier-reincarnation/nier-reincarnation-3-7-1-release/nier-reincarnation-3-7-1-2-android-apk-download/'
     ApkStockBytes = 263571029
+    ApkStockSha256 = '9ded0797ee607b6892b531ba3a02f4c4510774f5fe098ccada78ccff881c9209'
     ApkStockFile  = Join-Path $Root 'apk\stock\nier-3.7.1-stock.apk'
     ApkWorkDir    = Join-Path $Root 'apk\work'
     ApkOutput     = Join-Path $Root 'apk\out\nier-patched.apk'
@@ -157,15 +159,20 @@ $Config = @{
     AuthAddr      = '10.0.2.2:3000'
 
     # --- Toolchain, downloaded on demand (never committed to the repository) ---
-    #     Versions are pinned so the files can be verified by size.
+    #     Each file is pinned by version, size and SHA256: a substituted or
+    #     truncated archive is rejected before it is unpacked or executed.
     JreUrl        = 'https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jre_x64_windows_hotspot_17.0.20.1_1.zip'
     JreBytes      = 43780109
+    JreSha256     = 'bc21a93923103cdaac93ee337b0ae4365e739fde36df823dd456bc67c8a9d352'
     ApktoolUrl    = 'https://github.com/iBotPeaches/Apktool/releases/download/v3.0.3/apktool_3.0.3.jar'
     ApktoolBytes  = 15478013
+    ApktoolSha256 = 'dbf930b076c6b9be08d57c449cacefc3bdd6b71ebd59b3066fc0e1f5b14f9423'
     BuildToolsUrl = 'https://dl.google.com/android/repository/build-tools_r35_windows.zip'
     BuildToolsBytes = 59878107
+    BuildToolsSha256 = '5753c679a1b90bcf6fbc9945a2ce39dfb9e74f1df0831a1e1866ae5b594326f0'
     PythonUrl     = 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip'
     PythonBytes   = 11133606
+    PythonSha256  = '4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3'
 
     # --- Patcher scripts, pinned to a commit of the upstream repository ---
     # Pinned on purpose: an upstream change must not silently alter what this
@@ -206,6 +213,8 @@ $Paths = @{
 $Script:PackageName = 'com.square_enix.android_googleplay.nierspww'
 $Script:Serial      = '127.0.0.1:7555'
 $Script:EngineBytes = 4200000000      # ~4 GB, used for the engine progress bar
+$Script:AssetsExtractGB = 49          # extracted size of the game assets archive
+$Script:ServerPorts = @(8003, 8080, 3000)
 
 # process names whose windows are hidden during the MuMu installation
 $Script:HideProcessNames = @('nemu-downloader', 'nemu-setup', 'MuMuNG-setup', 'MuMuSetup', 'MuMuPlayer', 'MuMuPlayerUpdater', 'MuMuInstaller')
@@ -305,6 +314,38 @@ function Test-Admin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
+
+# ---- cancellation ---------------------------------------------------
+# The primary button turns into "Cancel setup" while the steps run and sets
+# this flag. Long operations call Assert-NotCancelled so they stop promptly;
+# downloaded .part files are kept, so pressing Start setup later resumes.
+$Script:CancelRequested = $false
+
+function Assert-NotCancelled {
+    if ($Script:CancelRequested) { throw [System.OperationCanceledException]::new('Cancelled by the user.') }
+}
+
+# Shows a message box only when a user is looking at the window.
+function Show-Notice {
+    param(
+        [Parameter(Mandatory)][string]$Message,
+        [ValidateSet('Information','Warning','Error')][string]$Icon = 'Warning'
+    )
+    if ($Console -or $InstallAll) { return }
+    [System.Windows.Forms.MessageBox]::Show($Message, 'Cage Setup', 'OK', $Icon) | Out-Null
+}
+
+# GB that must be free before the assets archive is downloaded and extracted.
+# Download and extraction need the disk at the same time, so both count.
+function Get-AssetsDiskRequirementGB {
+    param(
+        [int64]$TotalBytes = 0,
+        [int64]$DownloadedBytes = 0
+    )
+    $remaining = [math]::Max([int64]0, [int64]($TotalBytes - $DownloadedBytes))
+    return [int]($Script:AssetsExtractGB + [math]::Ceiling($remaining / 1GB) + 2)
+}
+
 
 # One installer per folder, so two windows cannot fight over the same
 # downloads and ports. The name is derived from the folder: installs in
@@ -670,8 +711,18 @@ function Test-PortOpen {
     try { $t.Connect('127.0.0.1', $Port); $true } catch { $false } finally { $t.Dispose() }
 }
 
+$Script:ServerCache = $false
+$Script:ServerCacheTime = [datetime]::MinValue
+
 function Test-ServerRunning {
-    (Test-PortOpen 8003) -and (Test-PortOpen 8080)
+    # same idea as the emulator cache: a single status refresh asks this three
+    # times, and probing two closed ports is slow on some machines
+    $now = Get-Date
+    if (($now - $Script:ServerCacheTime).TotalSeconds -lt 3) { return $Script:ServerCache }
+    $result = (Test-PortOpen 8003) -and (Test-PortOpen 8080)
+    $Script:ServerCache = $result
+    $Script:ServerCacheTime = $now
+    return $result
 }
 
 function Get-ServerProcesses {
@@ -688,6 +739,56 @@ function Get-ServerProcesses {
     }
     $found
 }
+
+# ---- ports ---------------------------------------------------------
+# Returns the process listening on a TCP port, or $null. Get-NetTCPConnection
+# exists since Windows 8; netstat is the fallback for unusual systems.
+function Get-PortOwner {
+    param([Parameter(Mandatory)][int]$Port)
+    $ownerId = 0
+    try {
+        # Listening sockets have no remote port. The State property is not used:
+        # some network stacks report it as empty for loopback sockets.
+        $conn = Get-NetTCPConnection -LocalPort $Port -ErrorAction Stop |
+                Where-Object { $_.RemotePort -eq 0 } | Select-Object -First 1
+        if ($conn) { $ownerId = [int]$conn.OwningProcess }
+    } catch {
+        # Fallback for systems without Get-NetTCPConnection: read netstat, without
+        # matching the (localized) state word.
+        foreach ($line in @(netstat -ano -p tcp 2>$null)) {
+            if ($line -match "^\s*TCP\s+\S+:$Port\s+\S+:0\s+\S+\s+(\d+)\s*$") { $ownerId = [int]$Matches[1]; break }
+        }
+    }
+    if ($ownerId -le 0) { return $null }
+
+    $name = 'unknown'
+    $path = ''
+    try {
+        $proc = Get-Process -Id $ownerId -ErrorAction Stop
+        $name = $proc.ProcessName
+        $path = $proc.Path
+    } catch {
+        Write-Verbose "Cannot read the process listening on port $Port (PID $ownerId)."
+    }
+    [pscustomobject]@{ Port = $Port; ProcessId = $ownerId; Name = $name; Path = $path }
+}
+
+# Ports held by something other than this installation's server. Starting the
+# server in that case fails deep inside wizard.exe, so the installer says it
+# up front and names the process.
+function Get-ServerPortConflicts {
+    param([int[]]$Ports = $Script:ServerPorts)
+    $prefix = $Paths.ServerDir.TrimEnd('\') + '\'
+    $conflicts = @()
+    foreach ($port in $Ports) {
+        $owner = Get-PortOwner -Port $port
+        if (-not $owner) { continue }
+        if ($owner.Path -and $owner.Path.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+        $conflicts += $owner
+    }
+    return $conflicts
+}
+
 
 # =====================================================================
 #  DOWNLOADS with percentage and speed
@@ -745,15 +846,28 @@ function Send-Download {
         [Parameter(Mandatory)][string]$Destination,
         [string]$Label = 'Download',
         [int64]$Bytes = 0,       # known total size (enables resume)
-        [string]$Sha1 = '',      # optional integrity check
+        [string]$Sha1 = '',      # integrity check for hosts that publish SHA1
+        [string]$Sha256 = '',    # integrity check for everything else
         [int]$Retries = 6
     )
     $folder = Split-Path $Destination -Parent
     if (-not (Test-Path $folder)) { New-Item -ItemType Directory -Force -Path $folder | Out-Null }
 
     if ((Test-Path $Destination) -and ((-not $Bytes) -or ((Get-Item $Destination).Length -eq $Bytes))) {
-        Write-Log "$Label already present: $Destination" 'OK'
-        return $true
+        if ($Sha256) {
+            # small pinned files (toolchain, patchers): verify them again, so a
+            # file modified after the first download cannot be reused
+            $existingHash = (Get-FileHash $Destination -Algorithm SHA256).Hash
+            if ($existingHash -eq $Sha256.ToUpper()) {
+                Write-Log "$Label already present: $Destination" 'OK'
+                return $true
+            }
+            Write-Log "$Label : the existing file does not match the pinned SHA256 - downloading it again." 'WARN'
+            Remove-Item $Destination -Force -ErrorAction SilentlyContinue
+        } else {
+            Write-Log "$Label already present: $Destination" 'OK'
+            return $true
+        }
     }
 
     $tmp = "$Destination.part"
@@ -764,6 +878,7 @@ function Send-Download {
     $client.Timeout = [TimeSpan]::FromHours(10)
     try {
         for ($attempt = 1; $attempt -le $Retries; $attempt++) {
+            Assert-NotCancelled
             [int64]$existing = 0
             if (Test-Path $tmp) { $existing = (Get-Item $tmp).Length }
             if ($Bytes -gt 0 -and $existing -ge $Bytes) { break }
@@ -803,6 +918,7 @@ function Send-Download {
                             $speed = ($done - $lastBytes) / (($ms - $lastMs) / 1000.0)
                             $lastMs = $ms; $lastBytes = $done
                             Update-Progress -Text $Label -Done $done -Total $total -Speed $speed
+                            Assert-NotCancelled
                         }
                     }
                 } finally {
@@ -818,25 +934,31 @@ function Send-Download {
                 }
                 Write-Log ("$Label : interrupted at " + (Format-Size $now) + ' of ' + (Format-Size $total) + ' - retrying.') 'WARN'
             } catch {
+                if ($_.Exception -is [System.OperationCanceledException]) { throw }
                 Write-Log ("$Label : error (" + $_.Exception.Message + ') - retrying.') 'WARN'
             }
             Start-Sleep -Seconds ([math]::Min(20, 3 * $attempt))
             [System.Windows.Forms.Application]::DoEvents()
         }
 
+        Assert-NotCancelled
         [int64]$final = 0
         if (Test-Path $tmp) { $final = (Get-Item $tmp).Length }
         if ($Bytes -gt 0 -and $final -ne $Bytes) { throw "Incomplete download: $final of $Bytes bytes" }
 
-        if ($Sha1) {
-            Update-Progress -Text "$Label : verifying integrity (SHA1)..." -Indeterminate
-            Write-Log "$Label : computing SHA1 (large files may take a few minutes)..."
-            $hash = (Get-FileHash $tmp -Algorithm SHA1).Hash
-            if ($hash -ne $Sha1.ToUpper()) {
+        $hashAlgorithm = ''
+        $expectedHash = ''
+        if ($Sha256) { $hashAlgorithm = 'SHA256'; $expectedHash = $Sha256.ToUpper() }
+        elseif ($Sha1) { $hashAlgorithm = 'SHA1'; $expectedHash = $Sha1.ToUpper() }
+        if ($hashAlgorithm) {
+            Update-Progress -Text "$Label : verifying integrity ($hashAlgorithm)..." -Indeterminate
+            Write-Log "$Label : computing $hashAlgorithm (large files may take a few minutes)..."
+            $hash = (Get-FileHash $tmp -Algorithm $hashAlgorithm).Hash
+            if ($hash -ne $expectedHash) {
                 Remove-Item $tmp -Force -ErrorAction SilentlyContinue
-                throw "SHA1 mismatch (expected $Sha1, got $hash). File removed: please retry."
+                throw "$hashAlgorithm mismatch (expected $expectedHash, got $hash). File removed: please retry."
             }
-            Write-Log "$Label : integrity verified (SHA1 ok)" 'OK'
+            Write-Log "$Label : integrity verified ($hashAlgorithm ok)" 'OK'
         }
 
         Move-Item $tmp $Destination -Force
@@ -893,6 +1015,11 @@ function Expand-Archive7z {
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $proc = [System.Diagnostics.Process]::Start($psi)
     while (-not $proc.HasExited) {
+        if ($Script:CancelRequested) {
+            try { $proc.Kill() } catch { Write-Verbose "Cannot stop 7-Zip: $($_.Exception.Message)" }
+            Remove-Item $log -Force -ErrorAction SilentlyContinue
+            Assert-NotCancelled
+        }
         Start-Sleep -Seconds 2
         $pct = Get-SevenZipPercent -LogPath $log
         if ($pct -ge 0) {
@@ -931,6 +1058,7 @@ function Watch-FolderGrowth {
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     [int64]$previous = 0; $previousSeconds = 0.0
     while ($sw.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+        Assert-NotCancelled
         Start-Sleep -Milliseconds 2000
         [int64]$now = Get-FolderSize $Path
         $t = $sw.Elapsed.TotalSeconds
@@ -1014,6 +1142,11 @@ function Invoke-Tool {
     $proc = [System.Diagnostics.Process]::Start($psi)
     try {
         while (-not $proc.HasExited) {
+            if ($Script:CancelRequested) {
+                try { $proc.Kill() } catch { Write-Verbose "Cannot stop ${Label}: $($_.Exception.Message)" }
+                Remove-Item $log -Force -ErrorAction SilentlyContinue
+                Assert-NotCancelled
+            }
             Start-Sleep -Milliseconds 800
             $tail = @(Get-LogTail -Path $log -Lines 1)
             $detail = if ($tail.Count -gt 0) { $tail[0].Trim() } else { '' }
@@ -1068,7 +1201,7 @@ function Ensure-Jdk {
     if ($java) { Write-Log "Java runtime: $java" 'OK'; return $true }
     Write-Log 'Toolchain: downloading the Java runtime (JRE 17, about 44 MB)'
     $zip = Join-Path $Paths.Downloads 'jre17.zip'
-    Send-Download -Url $Config.JreUrl -Destination $zip -Label 'Java runtime (JRE 17)' -Bytes $Config.JreBytes | Out-Null
+    Send-Download -Url $Config.JreUrl -Destination $zip -Label 'Java runtime (JRE 17)' -Bytes $Config.JreBytes -Sha256 $Config.JreSha256 | Out-Null
     Expand-ZipFile -Archive $zip -Destination $Paths.JdkDir
     if (Get-JavaExe) { Write-Log 'Java runtime ready' 'OK'; return $true }
     Write-Log 'Java runtime missing after extraction' 'ERROR'
@@ -1077,8 +1210,8 @@ function Ensure-Jdk {
 
 function Ensure-Apktool {
     if (Test-Path $Paths.ApktoolJar) { Write-Log "apktool: $($Paths.ApktoolJar)" 'OK'; return $true }
-    Write-Log 'Toolchain: downloading apktool (about 23 MB)'
-    Send-Download -Url $Config.ApktoolUrl -Destination $Paths.ApktoolJar -Label 'apktool' -Bytes $Config.ApktoolBytes | Out-Null
+    Write-Log 'Toolchain: downloading apktool (about 15 MB)'
+    Send-Download -Url $Config.ApktoolUrl -Destination $Paths.ApktoolJar -Label 'apktool' -Bytes $Config.ApktoolBytes -Sha256 $Config.ApktoolSha256 | Out-Null
     if (Test-Path $Paths.ApktoolJar) { Write-Log 'apktool ready' 'OK'; return $true }
     return $false
 }
@@ -1105,7 +1238,7 @@ function Ensure-BuildTools {
     }
     Write-Log 'Toolchain: downloading the Android build tools (about 60 MB)'
     $zip = Join-Path $Paths.Downloads 'build-tools.zip'
-    Send-Download -Url $Config.BuildToolsUrl -Destination $zip -Label 'Android build tools' -Bytes $Config.BuildToolsBytes | Out-Null
+    Send-Download -Url $Config.BuildToolsUrl -Destination $zip -Label 'Android build tools' -Bytes $Config.BuildToolsBytes -Sha256 $Config.BuildToolsSha256 | Out-Null
     Expand-ZipFile -Archive $zip -Destination $Paths.BuildToolsDir
     $align = Find-BuildTool 'zipalign.exe'
     $signer = Find-BuildTool 'apksigner.jar'
@@ -1144,7 +1277,7 @@ function Ensure-Python {
     if (-not (Test-Path $python)) {
         Write-Log 'Toolchain: downloading the Python runtime (about 11 MB)'
         $zip = Join-Path $Paths.Downloads 'python-embed.zip'
-        Send-Download -Url $Config.PythonUrl -Destination $zip -Label 'Python runtime' -Bytes $Config.PythonBytes | Out-Null
+        Send-Download -Url $Config.PythonUrl -Destination $zip -Label 'Python runtime' -Bytes $Config.PythonBytes -Sha256 $Config.PythonSha256 | Out-Null
         Expand-ZipFile -Archive $zip -Destination $Paths.PythonDir
     }
     if (-not (Test-Path $python)) { Write-Log 'Python runtime missing after extraction' 'ERROR'; return $null }
@@ -1229,8 +1362,10 @@ function Get-ApkmirrorApk {
     $work = Join-Path $env:TEMP ('lunartear-apk-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Force -Path $work | Out-Null
     $jar = Join-Path $work 'cookies.txt'
+    $downloaded = $false
 
     try {
+        Assert-NotCancelled
         # 1) variant page -> "/.../download/?key=..."
         $page = Join-Path $work 'page1.html'
         $null = & $curl -s -L --compressed -A $ua -c $jar -b $jar -o $page $Config.ApkPageUrl 2>&1
@@ -1290,6 +1425,7 @@ function Get-ApkmirrorApk {
                         $markMs = $ms
                         $markBytes = $done
                         Update-Progress -Text 'Downloading the game client from APKMirror' -Done $done -Total $total -Speed $speed
+                        Assert-NotCancelled
                     }
                 }
             } finally {
@@ -1303,7 +1439,9 @@ function Get-ApkmirrorApk {
 
         Remove-Item $Destination -Force -ErrorAction SilentlyContinue
         Move-Item $partial $Destination -Force
+        $downloaded = $true
     } catch {
+        if ($_.Exception -is [System.OperationCanceledException]) { throw }
         Write-Log $_.Exception.Message 'ERROR'
         return $false
     } finally {
@@ -1311,6 +1449,20 @@ function Get-ApkmirrorApk {
     }
 
     if (Test-ApkArchive $Destination) {
+        if ($Config.ApkStockSha256) {
+            Update-Progress -Text 'Verifying the stock APK (SHA256)...' -Indeterminate
+            $hash = (Get-FileHash $Destination -Algorithm SHA256).Hash
+            if ($hash -ne $Config.ApkStockSha256.ToUpper()) {
+                if ($downloaded) {
+                    Remove-Item $Destination -Force -ErrorAction SilentlyContinue
+                    Write-Log "Stock APK checksum mismatch: expected $($Config.ApkStockSha256), got $hash. The file was removed, please retry." 'ERROR'
+                    return $false
+                }
+                Write-Log "The stock APK was supplied locally and differs from the pinned file (SHA256 $hash): using it anyway." 'WARN'
+            } else {
+                Write-Log 'Stock APK verified (SHA256)' 'OK'
+            }
+        }
         Write-Log ("Stock APK downloaded: " + (Format-Size (Get-Item $Destination).Length)) 'OK'
         return $true
     }
@@ -1376,6 +1528,7 @@ function Build-ClientApk {
         Invoke-Tool -File $java -Label 'Decompiling the APK (apktool)' `
             -Arguments @('-Xmx2g', '-jar', $Paths.ApktoolJar, 'd', $Config.ApkStockFile, '-o', $work, '-f') | Out-Null
     } catch {
+        if ($_.Exception -is [System.OperationCanceledException]) { throw }
         Write-Log $_.Exception.Message 'ERROR'
         return $false
     }
@@ -1386,6 +1539,7 @@ function Build-ClientApk {
         Invoke-Tool -File $python -Label 'Patching the game client' `
             -Arguments @('-X', 'utf8', $patcher, $work, '--grpc-addr', $Config.GrpcAddr, '--http-addr', $Config.HttpAddr, '--auth-host', $Config.AuthAddr) | Out-Null
     } catch {
+        if ($_.Exception -is [System.OperationCanceledException]) { throw }
         Write-Log $_.Exception.Message 'ERROR'
         return $false
     }
@@ -1396,6 +1550,7 @@ function Build-ClientApk {
         Invoke-Tool -File $java -Label 'Rebuilding the APK (apktool)' `
             -Arguments @('-Xmx2g', '-jar', $Paths.ApktoolJar, 'b', $work, '-o', $unaligned) | Out-Null
     } catch {
+        if ($_.Exception -is [System.OperationCanceledException]) { throw }
         Write-Log $_.Exception.Message 'ERROR'
         return $false
     }
@@ -1406,6 +1561,7 @@ function Build-ClientApk {
         Invoke-Tool -File $Script:ZipAlignExe -Label 'Aligning the APK (zipalign)' `
             -Arguments @('-p', '-f', '4', $unaligned, $aligned) | Out-Null
     } catch {
+        if ($_.Exception -is [System.OperationCanceledException]) { throw }
         Write-Log $_.Exception.Message 'ERROR'
         return $false
     }
@@ -1435,6 +1591,7 @@ function Build-ClientApk {
         Invoke-Tool -File $java -Label 'Verifying the signature' `
             -Arguments @('-jar', $Script:ApkSignerJar, 'verify', '--print-certs', $Config.ApkOutput) | Out-Null
     } catch {
+        if ($_.Exception -is [System.OperationCanceledException]) { throw }
         Write-Log $_.Exception.Message 'ERROR'
         return $false
     }
@@ -1469,6 +1626,7 @@ function Watch-MuMuInstall {
     $activitySeen = $false
 
     while ($sw.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+        if ($Script:CancelRequested) { return 'cancelled' }
         Start-Sleep -Seconds 2
 
         # --- silence: hide MuMu windows as soon as they appear ---
@@ -1546,6 +1704,11 @@ function Action-InstallMuMu {
         Start-Process -FilePath $setup -ArgumentList '/S', '/fchannel=gw-overseas12', '/auto_start=false' -Verb RunAs | Out-Null
         $result = Watch-MuMuInstall -InitialSize $before -Hide:$hide
         if ($result -eq 'ok') { break }
+        if ($result -eq 'cancelled') {
+            Write-Log 'Emulator: installation cancelled, closing the MuMu setup.' 'WARN'
+            Get-Process -Name $Script:HideProcessNames -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            return $false
+        }
         if ($result -eq 'stall') {
             Write-Log 'Closing the MuMu processes and retrying with the window visible.' 'WARN'
             Get-Process -Name $Script:HideProcessNames -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -1577,7 +1740,12 @@ function Action-Debloat {
     if (-not (Test-EmulatorRunning)) {
         Write-Log 'Starting the emulator to apply the debloat...'
         & $Paths.MuMuManager control -v 0 launch 2>&1 | Out-Null
-        for ($i = 0; $i -lt 40; $i++) { Start-Sleep -Seconds 3; if (Test-EmulatorRunning) { break }; [Windows.Forms.Application]::DoEvents() }
+        for ($i = 0; $i -lt 40; $i++) {
+            if ($Script:CancelRequested) { return $false }
+            Start-Sleep -Seconds 3
+            if (Test-EmulatorRunning) { break }
+            [Windows.Forms.Application]::DoEvents()
+        }
     }
     Update-Progress -Text 'Applying the debloat...' -Indeterminate
     Invoke-MuMuDebloat | Out-Null
@@ -1662,6 +1830,7 @@ function Invoke-MasterDataPatch {
         Invoke-Tool -File $python -Label 'Patching the master data (content unlocked to 2030)' `
             -Arguments @('-X', 'utf8', $script, '--input', $InputFile, '--output', $OutputFile) | Out-Null
     } catch {
+        if ($_.Exception -is [System.OperationCanceledException]) { throw }
         Write-Log $_.Exception.Message 'ERROR'
         return $false
     }
@@ -1713,9 +1882,12 @@ function Action-GetGameAssets {
             Write-Log 'The local archive has a different size: downloading it again.' 'WARN'
             Remove-Item $archive -Force -ErrorAction SilentlyContinue
         }
+        $partialBytes = 0
+        if (Test-Path "$archive.part") { $partialBytes = (Get-Item "$archive.part").Length }
+        $needGB = Get-AssetsDiskRequirementGB -TotalBytes $Config.AssetsBytes -DownloadedBytes $partialBytes
         $free = Get-FreeSpaceGB
-        if ($free -lt 70) {
-            Write-Log "Not enough disk space: about 70 GB free on C: are required (you have $free GB)." 'ERROR'
+        if ($free -lt $needGB) {
+            Write-Log "Not enough disk space: about $needGB GB free on C: are required (you have $free GB)." 'ERROR'
             return $false
         }
         Send-Download -Url $Config.AssetsUrl -Destination $archive -Label 'Game assets (14.9 GB)' `
@@ -1723,6 +1895,14 @@ function Action-GetGameAssets {
     }
 
     New-Item -ItemType Directory -Force -Path $Paths.AssetsDir | Out-Null
+
+    # Download and extraction need the disk at the same time; check again here,
+    # after the download may have filled it.
+    $needExtractGB = $Script:AssetsExtractGB + 2
+    if ((Get-FreeSpaceGB) -lt $needExtractGB) {
+        Write-Log "Not enough disk space: extracting the assets needs about $needExtractGB GB free on C: (you have $(Get-FreeSpaceGB) GB)." 'ERROR'
+        return $false
+    }
 
     # the master data is NOT inside the asset dump: protect it and restore it afterwards
     $backup = Join-Path $env:TEMP 'lunartear-master.bak'
@@ -1764,7 +1944,12 @@ function Action-InstallClient {
     if (-not (Test-EmulatorRunning)) {
         Write-Log 'Starting the MuMu instance...'
         & $Paths.MuMuManager control -v 0 launch 2>&1 | Out-Null
-        for ($i = 0; $i -lt 40; $i++) { Start-Sleep -Seconds 3; if (Test-EmulatorRunning) { break }; [Windows.Forms.Application]::DoEvents() }
+        for ($i = 0; $i -lt 40; $i++) {
+            if ($Script:CancelRequested) { return $false }
+            Start-Sleep -Seconds 3
+            if (Test-EmulatorRunning) { break }
+            [Windows.Forms.Application]::DoEvents()
+        }
     }
     if (-not (Test-EmulatorRunning)) { Write-Log 'MuMu instance not reachable via ADB' 'ERROR'; return $false }
     $adb = Get-Adb
@@ -1777,12 +1962,29 @@ function Action-InstallClient {
 
 function Action-StartServer {
     Write-Log 'Server: checking the status' 'STEP'
-    if (Test-ServerRunning) { Write-Log 'Server already running (ports 8003/8080)' 'OK'; return $true }
+    if (Test-ServerRunning) { Write-Log 'Server already running (ports 8003/8080/3000)' 'OK'; return $true }
     if (-not (Test-ServerFiles)) { Write-Log 'Server binaries are missing: download the game first' 'ERROR'; return $false }
+
+    $conflicts = @(Get-ServerPortConflicts)
+    if ($conflicts.Count -gt 0) {
+        $details = @($conflicts | ForEach-Object { "port $($_.Port) is used by $($_.Name) (PID $($_.ProcessId))" })
+        foreach ($detail in $details) { Write-Log "Cannot start the server: $detail." 'ERROR' }
+        Show-Notice -Icon 'Error' -Message ("The server cannot start because another program is using its ports:`r`n`r`n- " +
+            ($details -join "`r`n- ") + "`r`n`r`nClose that program and press Start again.")
+        return $false
+    }
+
+    Assert-NotCancelled
     Start-Process -FilePath (Join-Path $Paths.ServerDir 'wizard.exe') -ArgumentList '--prefer-saved' -WorkingDirectory $Paths.ServerDir | Out-Null
-    for ($i = 0; $i -lt 30; $i++) { Start-Sleep -Seconds 1; if (Test-ServerRunning) { break }; [Windows.Forms.Application]::DoEvents() }
+    $Script:ServerCacheTime = [datetime]::MinValue
+    for ($i = 0; $i -lt 30; $i++) {
+        if ($Script:CancelRequested) { return $false }
+        Start-Sleep -Seconds 1
+        if (Test-ServerRunning) { break }
+        [Windows.Forms.Application]::DoEvents()
+    }
     if (Test-ServerRunning) { Write-Log 'Server started' 'OK'; return $true }
-    Write-Log 'Server not detected on ports 8003/8080' 'WARN'; return $false
+    Write-Log 'Server not detected on ports 8003/8080/3000' 'WARN'; return $false
 }
 
 function Action-StopServer {
@@ -1790,6 +1992,7 @@ function Action-StopServer {
     $procs = @(Get-ServerProcesses)
     if ($procs.Count -eq 0) { Write-Log 'Server is not running' 'OK'; return $true }
     foreach ($p in $procs) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+    $Script:ServerCacheTime = [datetime]::MinValue
     for ($i = 0; $i -lt 15; $i++) { Start-Sleep -Seconds 1; if (-not (Test-ServerRunning)) { break } }
     if (Test-ServerRunning) { Write-Log 'The server is still listening on its ports' 'WARN'; return $false }
     Write-Log ("Server stopped ($($procs.Count) process(es))") 'OK'
@@ -1875,6 +2078,54 @@ function Invoke-Action {
 
 
 # =====================================================================
+#  SUPPORT: one copyable block for issue reports
+# =====================================================================
+function Get-DiagnosticsText {
+    $dpi = if ($Script:Dpi) { $Script:Dpi } else { 96 }
+    $scale = if ($Script:Scale) { $Script:Scale } else { 1 }
+    $lines = @()
+    $lines += 'Cage Setup ' + $Script:AppVersion + ' - diagnostics'
+    $lines += 'Generated  : ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+    $lines += 'Windows    : ' + [Environment]::OSVersion.Version + ' (' + [Environment]::OSVersion.VersionString + ')'
+    $lines += '64-bit     : ' + [Environment]::Is64BitOperatingSystem
+    $lines += 'Admin      : ' + (Test-Admin)
+    $lines += 'Virtualiz. : ' + (Test-VirtualizationEnabled)
+    $lines += 'Hyper-V    : ' + (Test-HyperVActive)
+    $lines += 'Free on C: : ' + (Get-FreeSpaceGB) + ' GB'
+    $lines += 'Display    : ' + $dpi + ' DPI (scale ' + [math]::Round($scale, 2) + ')'
+    $lines += 'Root       : ' + $Root
+    $lines += ''
+
+    if ($Script:Steps) {
+        $lines += 'Steps:'
+        foreach ($step in $Script:Steps) {
+            $lines += '  ' + $step.Number + '. ' + $step.Title + ' = ' + $step.Status
+        }
+        $lines += ''
+    }
+
+    $lines += 'MuMu       : ' + (Test-MuMuInstalled) + ' (' + $Paths.MuMuDir + ')'
+    $lines += 'ADB        : ' + (Get-Adb)
+    $lines += 'Emulator   : running=' + (Test-EmulatorRunning) + ' client=' + (Test-GameInstalled) + ' debloat=' + (Test-DebloatApplied)
+    $lines += 'Server     : files=' + (Test-ServerFiles) + ' running=' + (Test-ServerRunning)
+    $lines += 'Master data: ' + (Test-MasterData)
+    $lines += 'Assets     : ' + (Test-GameAssets)
+    $lines += 'Client APK : ' + (Get-ClientApkPath)
+    $lines += 'Toolchain  : java=' + [bool](Get-JavaExe) + ' apktool=' + (Test-Path $Paths.ApktoolJar) +
+              ' python=' + (Test-Path (Join-Path $Paths.PythonDir 'python.exe'))
+    $lines += ''
+
+    $tail = @(Get-LogTail -Path $LogFile -Lines 40 -Bytes 65536)
+    if ($tail.Count -gt 0) {
+        $lines += 'Log (last ' + $tail.Count + ' lines):'
+        $lines += $tail
+    } else {
+        $lines += 'Log: empty'
+    }
+    return ($lines -join "`r`n")
+}
+
+# =====================================================================
 #  CONSOLE / DIAGNOSTICS
 # =====================================================================
 if ($Console -or $InstallAll) {
@@ -1925,6 +2176,7 @@ if ($Console -or $InstallAll) {
 $Script:DpiAware = [CageSetup.Dpi]::EnsureAware()
 $Script:Dpi = [CageSetup.Dpi]::CurrentDpi()
 $Script:Scale = if ($Script:DpiAware -and $Script:Dpi -gt 0) { $Script:Dpi / 96.0 } else { 1.0 }
+$Script:Running = $false
 
 # One instance per folder: two windows would fight over the same downloads and
 # ports, and could start the server twice.
@@ -1998,6 +2250,7 @@ $versionLink.TextAlign = 'MiddleRight'
 $versionLink.LinkColor = $Script:TextDim
 $versionLink.ActiveLinkColor = $Script:Gold
 $versionLink.LinkBehavior = 'NeverUnderline'
+$versionLink.TabIndex = 8
 $versionLink.Add_LinkClicked({ Start-Process $Config.ReleasesUrl })
 $form.Controls.Add($versionLink)
 
@@ -2107,6 +2360,39 @@ function Update-Steps {
     [System.Windows.Forms.Application]::DoEvents()
 }
 
+# The primary button doubles as the Cancel button while the steps run: pressing
+# it asks the running operation to stop and keeps the partial downloads.
+function Update-MainButton {
+    if ($form) { $form.AcceptButton = if ($Script:Running) { $null } else { $btnMain } }
+    if ($Script:Running) {
+        $btnMain.BackColor = $Script:Button
+        $btnMain.ForeColor = $Script:TextMain
+        $btnMain.FlatAppearance.MouseOverBackColor = $Script:ButtonHot
+        if ($Script:CancelRequested) {
+            $btnMain.Text = 'Cancelling...'
+            $btnMain.Enabled = $false
+        } else {
+            $btnMain.Text = 'Cancel setup'
+            $btnMain.Enabled = $true
+        }
+        return
+    }
+    $btnMain.Enabled = $true
+    $btnMain.BackColor = $Script:Gold
+    $btnMain.ForeColor = [Drawing.Color]::Black
+    $btnMain.FlatAppearance.MouseOverBackColor = [Drawing.Color]::FromArgb(240, 214, 158)
+    $play = $Script:Steps | Where-Object { $_.Key -eq 'play' } | Select-Object -First 1
+    if ($play -and $play.Status -eq 'ok') { $btnMain.Text = 'Launch game' } else { $btnMain.Text = 'Start setup' }
+}
+
+function Request-Cancel {
+    if (-not $Script:Running -or $Script:CancelRequested) { return }
+    $Script:CancelRequested = $true
+    Write-Log 'Cancel requested: stopping the current operation (partial downloads are kept).' 'WARN'
+    Update-Progress -Text 'Cancelling... partial downloads are kept.' -Indeterminate
+    Update-MainButton
+}
+
 # ---- progress -----------------------------------------------------
 $progressBar = New-Object System.Windows.Forms.ProgressBar
 $progressBar.Location = New-Object Drawing.Point(20, 420)
@@ -2148,6 +2434,11 @@ function New-FlatButton {
 
 $btnMain = New-FlatButton -Text 'Start setup' -X 20 -Y 472 -Width 190 -Height 40 -Primary
 $btnLog = New-FlatButton -Text 'Open log' -X 222 -Y 472 -Width 120 -Height 40
+$btnDiagnostics = New-FlatButton -Text 'Copy diagnostics' -X 354 -Y 472 -Width 138 -Height 40
+
+$btnMain.TabIndex = 0
+$btnLog.TabIndex = 1
+$btnDiagnostics.TabIndex = 2
 
 $lnkRefresh = New-Object System.Windows.Forms.LinkLabel
 $lnkRefresh.Text = 'Refresh'
@@ -2157,6 +2448,7 @@ $lnkRefresh.TextAlign = 'MiddleRight'
 $lnkRefresh.LinkColor = $Script:TextDim
 $lnkRefresh.ActiveLinkColor = $Script:Gold
 $lnkRefresh.LinkBehavior = 'NeverUnderline'
+$lnkRefresh.TabIndex = 3
 $form.Controls.Add($lnkRefresh)
 
 $lnkAdvanced = New-Object System.Windows.Forms.LinkLabel
@@ -2167,6 +2459,7 @@ $lnkAdvanced.TextAlign = 'MiddleRight'
 $lnkAdvanced.LinkColor = $Script:TextDim
 $lnkAdvanced.ActiveLinkColor = $Script:Gold
 $lnkAdvanced.LinkBehavior = 'NeverUnderline'
+$lnkAdvanced.TabIndex = 4
 $form.Controls.Add($lnkAdvanced)
 
 # ---- server row ---------------------------------------------------
@@ -2187,6 +2480,9 @@ $Script:ServerStateLabel = $serverState
 $btnStartServer = New-FlatButton -Text 'Start' -X 340 -Y 526 -Width 80 -Height 30
 $btnStopServer = New-FlatButton -Text 'Stop' -X 430 -Y 526 -Width 80 -Height 30
 $btnRestartServer = New-FlatButton -Text 'Restart' -X 520 -Y 526 -Width 90 -Height 30
+$btnStartServer.TabIndex = 5
+$btnStopServer.TabIndex = 6
+$btnRestartServer.TabIndex = 7
 
 function Update-ServerStateLabel {
     if (-not $Script:ServerStateLabel) { return }
@@ -2217,7 +2513,12 @@ function Start-Game {
     if (-not (Test-ServerRunning)) { Action-StartServer | Out-Null }
     if (-not (Test-EmulatorRunning)) {
         & $Paths.MuMuManager control -v 0 launch 2>&1 | Out-Null
-        for ($i = 0; $i -lt 40; $i++) { Start-Sleep -Seconds 3; if (Test-EmulatorRunning) { break }; [Windows.Forms.Application]::DoEvents() }
+        for ($i = 0; $i -lt 40; $i++) {
+            if ($Script:CancelRequested) { return $false }
+            Start-Sleep -Seconds 3
+            if (Test-EmulatorRunning) { break }
+            [Windows.Forms.Application]::DoEvents()
+        }
     }
     if (Test-EmulatorRunning) {
         $adb = Get-Adb
@@ -2245,11 +2546,18 @@ function Invoke-StepAction {
 
 function Run-Steps {
     param([string[]]$Keys)
-    $btnMain.Enabled = $false
-    $btnLog.Enabled = $false
+    $Script:Running = $true
+    $Script:CancelRequested = $false
+    $lnkRefresh.Enabled = $false
+    $lnkAdvanced.Enabled = $false
+    $btnStartServer.Enabled = $false
+    $btnStopServer.Enabled = $false
+    $btnRestartServer.Enabled = $false
+    Update-MainButton
     try {
         Update-Steps
         foreach ($key in @('emulator', 'files', 'client', 'server')) {
+            if ($Script:CancelRequested) { break }
             if ($Keys -and ($Keys -notcontains $key)) { continue }
             $step = $Script:Steps | Where-Object { $_.Key -eq $key } | Select-Object -First 1
             if (-not $step) { continue }
@@ -2259,21 +2567,33 @@ function Run-Steps {
             Set-StepVisual -Key $key
             $result = $null
             try { $result = Invoke-StepAction -Key $key }
+            catch [System.OperationCanceledException] { $result = $false }
             catch { Write-Log ("Error on " + $step.Title + ": " + $_.Exception.Message) 'ERROR'; $result = $false }
             Update-Steps
 
+            # a cancelled operation is not a failure: no error dialog
+            if ($Script:CancelRequested) { break }
+
             if ($result -eq $false) {
                 Update-Progress -Text ("Stopped at step " + $step.Number + ": " + $step.Title + ". See the log.") -Done 0 -Total 0
-                [System.Windows.Forms.MessageBox]::Show(
-                    "Step $($step.Number) ($($step.Title)) failed.`r`n`r`nOpen the log for the details.",
-                    'Cage Setup', 'OK', 'Error') | Out-Null
+                Show-Notice -Icon 'Error' -Message "Step $($step.Number) ($($step.Title)) failed.`r`n`r`nOpen the log for the details."
                 return
             }
         }
-        Update-Progress -Text 'Done.' -Done 0 -Total 0
+        if ($Script:CancelRequested) {
+            Write-Log 'Setup cancelled. Partial downloads are kept and resume next time.' 'WARN'
+            Update-Progress -Text 'Cancelled. Press Start setup to continue later.' -Done 0 -Total 0
+        } else {
+            Update-Progress -Text 'Done.' -Done 0 -Total 0
+        }
     } finally {
-        $btnMain.Enabled = $true
-        $btnLog.Enabled = $true
+        $Script:Running = $false
+        $Script:CancelRequested = $false
+        $lnkRefresh.Enabled = $true
+        $lnkAdvanced.Enabled = $true
+        $btnStartServer.Enabled = $true
+        $btnStopServer.Enabled = $true
+        $btnRestartServer.Enabled = $true
         Update-Steps
         Update-ServerStateLabel
     }
@@ -2414,10 +2734,27 @@ function Start-UpdateCheck {
 
 # ---- event handlers -----------------------------------------------
 $btnMain.Add_Click({
+    if ($Script:Running) { Request-Cancel; return }
     if ($btnMain.Text -eq 'Launch game') { Start-Game } else { Start-Setup }
 })
 
 $btnLog.Add_Click({ if (Test-Path $LogFile) { Start-Process notepad.exe $LogFile } })
+
+$btnDiagnostics.Add_Click({
+    Update-Progress -Text 'Collecting diagnostics...' -Indeterminate
+    $copied = $false
+    for ($attempt = 1; $attempt -le 5 -and -not $copied; $attempt++) {
+        try { [System.Windows.Forms.Clipboard]::SetText((Get-DiagnosticsText)); $copied = $true }
+        catch { Start-Sleep -Milliseconds 150 }
+    }
+    if ($copied) {
+        Write-Log 'Diagnostics copied to the clipboard.' 'OK'
+        Update-Progress -Text 'Diagnostics copied. Paste them into the issue.' -Done 0 -Total 0
+    } else {
+        Write-Log 'Cannot copy to the clipboard: another program is holding it.' 'ERROR'
+        Update-Progress -Text 'The clipboard is busy: close the program using it and try again.' -Done 0 -Total 0
+    }
+})
 
 $lnkRefresh.Add_LinkClicked({
     Update-Progress -Text 'Checking the current status...' -Indeterminate
@@ -2450,6 +2787,31 @@ $btnRestartServer.Add_Click({
     Update-ServerStateLabel
     Update-Steps
     Update-Progress -Text 'Server: restarted.' -Done 0 -Total 0
+})
+
+# ---- keyboard -----------------------------------------------------
+# Enter activates the primary button through AcceptButton (disabled while a
+# setup runs, so a second key press cannot cancel by accident). Escape cancels
+# a running setup, or closes the window when nothing is running.
+$form.KeyPreview = $true
+$form.Add_KeyDown({
+    if ($_.KeyCode -eq [System.Windows.Forms.Keys]::Escape) {
+        if ($Script:Running) {
+            Request-Cancel
+        } else {
+            $form.Close()
+        }
+        $_.SuppressKeyPress = $true
+    }
+})
+
+# Closing the window while a setup runs would leave a download half-written in
+# a disposed window: ask the operation to stop, then close when it has stopped.
+$form.Add_FormClosing({
+    if ($Script:Running) {
+        $_.Cancel = $true
+        Request-Cancel
+    }
 })
 
 $form.Add_Shown({

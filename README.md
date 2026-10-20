@@ -1,135 +1,111 @@
 # Cage Setup
 
 An unofficial, guided Windows installer for the **NieR Re[in]carnation** private
-server ([Lunar Tear](https://gitlab.com/walter-sparrow-group/lunar-tear), mirrored on
-[GitHub](https://github.com/Walter-Sparrow/lunar-tear)).
+server ([Lunar Tear](https://gitlab.com/walter-sparrow-group/lunar-tear), mirrored
+on [GitHub](https://github.com/Walter-Sparrow/lunar-tear)).
 
-Double-click **`CageSetup.exe`**, press **Start setup**, and the installer
-downloads, installs and configures everything: the MuMu Player emulator, the
-server, the game data and the patched client. Every download shows status,
-percentage, speed and the estimated time left.
+Double-click **`CageSetup.exe`**, press **Start setup**, and it downloads,
+installs and configures everything: MuMu Player, the server, the game data and
+the patched client. Every download shows progress, speed and the time left.
 
 ![Cage Setup main window](docs/main-window.png)
 
-> This package contains **no game APK, no game assets and no master data**.
-> The stock APK is downloaded from APKMirror and patched on your PC; the game
-> data is downloaded from archive.org and the master data is patched locally
-> with the official `lunar-scripts` tool.
-
----
+> This package contains **no game APK, no game assets and no master data**. The
+> stock APK comes from APKMirror and is patched on your PC; the game data comes
+> from archive.org; the master data is patched locally with `lunar-scripts`.
 
 ## Requirements
 
 | Item | Notes |
 |---|---|
 | Windows 10 / 11 64-bit | |
-| Virtualization (VT-x / AMD-V) | Must be enabled in the BIOS |
+| Virtualization (VT-x / AMD-V) | Enabled in the BIOS |
 | Hyper-V disabled | MuMu needs direct hardware virtualization |
-| Free disk space | ~25 GB, ~75 GB if you install the full game assets |
-| Administrator rights | Required to install MuMu Player |
-| Internet connection | ~20 GB of downloads in total |
+| Free disk space | ~25 GB, ~75 GB with the full game assets |
+| Administrator rights | Needed to install MuMu Player |
+| Internet connection | ~20 GB of downloads |
 
-The first step checks these requirements and tells you what to fix if something
-is missing, so you can see at a glance whether the PC is ready.
-
----
+Step 1 checks all of this and lists what has to be fixed, so the window shows at
+a glance whether the PC is ready.
 
 ## Usage
 
-1. Download **`CageSetup.exe`** from the [Releases](https://github.com/claitt/cage-setup/releases)
-   page and put it in a folder you can write to (Desktop, Downloads, ...), or
-   [build it yourself](#the-executable).
-2. Run it and accept the administrator prompt (it is needed to install MuMu
-   Player). The window lists six steps. Each one shows **Ready** (green),
-   **Waiting** (grey), **Check** (amber) or **Problem** (red); step 1 also tells
-   you what to fix, if anything.
-3. Press **Start setup** (about 20 GB of downloads): the installer runs the
-   steps that are not ready yet and skips everything already in place.
-4. When the button changes to **Launch game**, the server is running: click it.
+1. Download **`CageSetup.exe`** from [Releases](https://github.com/claitt/cage-setup/releases)
+   (or [build it yourself](#the-executable)) and put it in a folder you can write to.
+2. Run it and accept the UAC prompt. The six steps show **Ready** (green),
+   **Waiting** (grey), **Check** (amber) or **Problem** (red).
+3. Press **Start setup** (~20 GB of downloads). Steps that are already done are
+   skipped, so the same button can be pressed again after a failure.
+4. When the button becomes **Launch game**, the server is running: click it.
 
-Everything the installer downloads (tools, client, assets, server) is kept in
-the folder that contains `CageSetup.exe`, so the whole setup is portable: copy
-the folder or delete it to start over.
+Everything is kept next to `CageSetup.exe`, so the folder is portable: copy it,
+or delete it to start over.
+
+While setup runs, the primary button becomes **Cancel setup**. It stops the
+current download or installation and keeps the `.part` files, so the next
+**Start setup** resumes. Enter activates the primary button; Esc cancels a
+running setup or closes the window.
+
+**Open log** opens `installer-log.txt`. **Copy diagnostics** puts the version,
+the Windows build, the component states and the last 40 log lines on the
+clipboard, ready for a bug report. **Refresh** re-checks the steps.
+**Advanced...** runs a single component. The **Start / Stop / Restart** row
+controls the server.
 
 ### Version, updates, display
 
-The version is shown in the window title and on the right of the header; click
-it to open the releases page. At startup the installer asks the public GitHub
-API for the latest release (one request, nothing about the PC is sent) and the
-label becomes **Update: vX.Y.Z** when a newer version exists.
+The version is in the window title and on the right of the header; click it to
+open the releases page. At startup the installer asks the public GitHub API for
+the latest release (one request, nothing about the PC is sent) and the label
+becomes **Update: vX.Y.Z** when a newer version exists.
 
-Only one installer can run per folder: a second copy tells you that it is
-already running and exits. The window is DPI aware and scales on 125% and 150%
-displays; on a screen that is too small it is reduced and scrolls.
+Only one installer runs per folder. The window is DPI aware and scales on 125%
+and 150% displays; on a screen that is too small it is reduced and scrolls.
 
 ### The six steps
 
 | Step | Download | What it does |
 |---|---|---|
 | **1. Check your PC** | - | Windows 64-bit, virtualization, Hyper-V, free space, administrator rights. |
-| **2. Install the emulator** | ~5 GB | Downloads and installs MuMu Player, waits for the Android engine, then removes only the NetEase/MuMu bloatware. Google services are left intact. |
-| **3. Get the game files** | ~15.4 GB | Downloads the server binaries (GitHub Releases) and the master data, then builds the patched client: the stock APK is taken from APKMirror, patched with the official `lunar-scripts` patcher and signed again. Finally the 14.9 GB game assets are downloaded and extracted (archive.org). |
-| **4. Install the game** | - | Installs the APK on MuMu through ADB. |
+| **2. Install the emulator** | ~5 GB | Installs MuMu Player, waits for the Android engine, removes only the NetEase/MuMu bloatware (Google services stay). |
+| **3. Get the game files** | ~15.4 GB | Server binaries, master data, patched client and the 14.9 GB game assets. |
+| **4. Install the game** | - | Installs the patched APK on MuMu through ADB. |
 | **5. Start the server** | - | Starts the private server (gRPC 8003, CDN 8080). |
 | **6. Launch the game** | - | Opens the game on the emulator. |
 
-### Building the client
+### How the client and the master data are prepared
 
-A private server needs a modified client (server addresses, SSL, encryption and
-billing checks), and a modified APK must be signed again. The installer does all
-of it automatically:
+The client needs a modified APK (server addresses, SSL, encryption, billing
+checks), and a modified APK must be signed again. The installer downloads the
+stock APK 3.7.1 from APKMirror, fetches the toolchain on demand (JRE 17,
+apktool, Android build tools, portable Python; ~140 MB, reused afterwards),
+applies `patch_apk.py` from `lunar-scripts`, rebuilds, aligns and signs it with a
+local debug key. The result is `apk\out\nier-patched.apk`; the build takes a few
+minutes (10-20 on slower PCs).
 
-1. downloads the stock APK 3.7.1 from APKMirror;
-2. downloads the toolchain on demand - Java (JRE 17), apktool, the Android build
-   tools and a portable Python runtime, about 140 MB in total;
-3. decompiles the APK, applies `android/patch_apk.py` from the upstream
-   `lunar-scripts` repository and rebuilds it;
-4. aligns and signs it with a local debug key (`apk/out/debug.keystore`).
-
-The build takes a few minutes (10-20 on slower PCs). The result is
-`apk\out\nier-patched.apk`. The toolchain is never committed to the repository:
-it is downloaded only when needed and reused afterwards.
-
-### Master data
-
-The master data published on archive.org is the original file. The installer
-patches it with the official `patch_masterdata.py`, which extends the content end
-dates to 2030-12-31, unlocks the Labyrinth event quests and removes the
-maintenance notice. The result is byte-identical to the patched file used by the
-reference server (7,763,264 bytes, SHA1 `DF6F4F1A...`), so no pre-patched copy has
-to be hosted anywhere.
-
-### Buttons
-
-- **Start setup** - runs the steps that are not ready yet. It is idempotent:
-  everything already in place is skipped, so you can press it again after a
-  failure. When all six steps are ready it becomes **Launch game**.
-- **Launch game** - starts the server and the emulator if needed, then opens the game.
-- **Open log** - opens `installer-log.txt`.
-- **Refresh** - re-checks the six steps.
-- **Advanced...** - runs a single component instead of the whole sequence:
-  emulator, game files, client installation, server, ARM check, package inventory.
-- **Start / Stop / Restart** (server row) - controls the private server.
-
----
+The master data on archive.org is the original file. `patch_masterdata.py`
+extends the content end dates to 2030-12-31, unlocks the Labyrinth event quests
+and removes the maintenance notice. The result is byte-identical to the file
+used by the reference server, so no pre-patched copy is hosted anywhere.
 
 ## The executable
 
 `CageSetup.exe` is **not a separate program**: it is `Cage Setup.ps1` from this
-repository packed into a single executable with
-[ps2exe](https://github.com/MScholtes/PS2EXE). The script stays in the
-repository in plain text, so you can read exactly what the installer does before
-running it, and you can build the same executable yourself.
+repository packed into one executable with
+[ps2exe](https://github.com/MScholtes/PS2EXE). The script stays readable in the
+repository, so you can see exactly what runs, and the executable can be rebuilt
+byte-for-byte by anyone.
 
-The executable embeds an administrator manifest (`requireAdministrator`), which
-is why Windows shows the UAC prompt when it starts.
+It embeds an administrator manifest (`requireAdministrator`), which is why
+Windows shows the UAC prompt.
 
 ### Build it yourself
 
-On GitHub: open **Actions -> Build CageSetup.exe -> Run workflow**. The build runs
-on a clean Windows runner, checks that the script parses, packs it and uploads
-`CageSetup.exe` together with its SHA256 as downloadable artifacts. Pushing a
-tag such as `v1.0.0` also publishes both files on the Releases page.
+On GitHub: **Actions -> Build CageSetup.exe -> Run workflow**. The build lints
+and tests the script, packs it, smoke-tests the executable and uploads
+`CageSetup.exe` with its SHA256. Pushing a tag such as `v1.3.0` also publishes
+both files on the Releases page; the workflow rejects a tag that does not match
+`$Script:AppVersion`.
 
 On your PC (PowerShell 5.1):
 
@@ -137,15 +113,14 @@ On your PC (PowerShell 5.1):
 Install-Module ps2exe -Scope CurrentUser
 Invoke-PS2EXE -InputFile "Cage Setup.ps1" -OutputFile "CageSetup.exe" `
   -noConsole -requireAdmin -STA -iconFile "assets\cage.ico" `
-  -title "Cage Setup" -product "Cage Setup" -version "1.0.0.0"
+  -title "Cage Setup" -product "Cage Setup" -version "1.3.0.0"
 ```
 
-The exact command used by the automated build is in
-[`.github/workflows/build.yml`](.github/workflows/build.yml).
+The exact command is in [`.github/workflows/build.yml`](.github/workflows/build.yml).
 
 ### Verify the download
 
-Every release is built by that workflow and comes with a
+Every release is built by that workflow and has a
 [build provenance attestation](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations).
 With the GitHub CLI installed:
 
@@ -153,85 +128,61 @@ With the GitHub CLI installed:
 gh attestation verify CageSetup.exe --repo claitt/cage-setup
 ```
 
-`CageSetup.exe.sha256` contains the SHA256 of the file, and the script itself
-can always be read in this repository or run directly.
-
-### Or run the script directly
-
-No executable is required. From a PowerShell window in this folder:
+`CageSetup.exe.sha256` contains the SHA256 of the file. Running the script
+directly is also possible:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "Cage Setup.ps1"
 ```
 
-The script behaves like the executable; the differences are the window icon and
-the fact that it does not ask for administrator rights by itself (start
-PowerShell as administrator if you need to install MuMu Player). Double-clicking
-the `.ps1` does not run it: Windows opens `.ps1` files in an editor.
-
----
+It behaves like the executable; only the icon differs and it does not ask for
+administrator rights by itself (start PowerShell as administrator to install
+MuMu Player). Double-clicking a `.ps1` opens it in an editor instead.
 
 ## Where the files come from
 
 | Resource | Host | Size |
 |---|---|---|
-| Server binaries | [GitHub Releases](https://github.com/Walter-Sparrow/lunar-tear/releases) (pinned to v1.0.2 and verified with SHA256) | ~33 MB |
+| Server binaries | [GitHub Releases](https://github.com/Walter-Sparrow/lunar-tear/releases) (pinned release, SHA256) | ~33 MB |
 | Game assets | [archive.org: nier_reincarnation_assets](https://archive.org/details/nier_reincarnation_assets) | 14.93 GB (~48.8 GB extracted) |
 | Master data | [archive.org: 20240404193219.bin](https://archive.org/details/20240404193219.bin) | 7.4 MB (patched locally) |
 | Game client (APK) | [APKMirror: NieR Re[in]carnation 3.7.1](https://www.apkmirror.com/apk/square-enix-co-ltd/nier-reincarnation/nier-reincarnation-3-7-1-release/) | 251 MB (patched locally) |
-| Patcher scripts | [lunar-scripts](https://gitlab.com/walter-sparrow-group/lunar-scripts) (downloaded on the first run, then cached) | ~64 KB |
-| MuMu Player | official NetEase download | ~5 GB with the engine |
+| Patcher scripts | [lunar-scripts](https://gitlab.com/walter-sparrow-group/lunar-scripts) (pinned commit) | ~64 KB |
+| MuMu Player | official NetEase download (signature-checked) | ~5 GB with the engine |
 | Toolchain | Adoptium, Apktool, Android SDK Build-Tools, python.org, PyPI | ~140 MB |
 
 Downloads are **resumable**: if the connection drops, press the button again and
-the transfer continues from where it stopped (a `.part` file is kept until the
-download is complete).
-
-The downloaded archives are verified against their SHA1 hash where one is known.
-
----
+the transfer continues from the `.part` file. Every file is pinned by size and
+hash before it is unpacked or executed: SHA256 for the toolchain and the stock
+APK, SHA1 where the host publishes only that (assets, master data).
 
 ## Configuration (for distributors)
 
-Open `Cage Setup.ps1` and edit the `$Config` block at the top.
-No value has to be filled in: every source already points to a public host.
-
-Optional overrides:
+Open `Cage Setup.ps1` and edit the `$Config` block at the top. No value has to be
+filled in: every source already points to a public host.
 
 | Key | Meaning |
 |---|---|
-| `ServerUrl` | Force a specific server build instead of the latest GitHub release |
-| `MasterUrl` / `MasterBytes` / `MasterSha1` | Different master data host (the installer patches it anyway) |
+| `ServerUrl` / `ServerBytes` / `ServerSha256` | Pin a specific server build instead of the latest release |
+| `MasterUrl` / `MasterBytes` / `MasterSha1` | Different master data host |
 | `AssetsUrl` / `AssetsBytes` / `AssetsSha1` | Different game assets host |
-| `ApkPageUrl` / `ApkStockBytes` | Different APK version on APKMirror |
-| `GrpcAddr` / `HttpAddr` / `AuthAddr` | Addresses written into the client (default `10.0.2.2`, the host as seen from the emulator) |
-| `JreUrl` / `ApktoolUrl` / `BuildToolsUrl` / `PythonUrl` | Mirror for the toolchain |
-| `ScriptsRaw` | Base URL of the `lunar-scripts` raw files (pin a commit to freeze the patcher version) |
+| `ApkPageUrl` / `ApkStockBytes` / `ApkStockSha256` | Different APK version on APKMirror |
+| `GrpcAddr` / `HttpAddr` / `AuthAddr` | Addresses written into the client (`10.0.2.2` is the host as seen from the emulator) |
+| `JreUrl` / `ApktoolUrl` / `BuildToolsUrl` / `PythonUrl` (+ `*Bytes`, `*Sha256`) | Mirrors and pins for the toolchain |
+| `ScriptsRaw` | Base URL of the `lunar-scripts` raw files (pin a commit to freeze the patcher) |
 
 ### Pinned sources
 
-Two things are pinned so that a new build cannot change silently:
-
 | What | Where | How to update |
 |---|---|---|
-| Patcher scripts | `ScriptsRaw` points to a commit of `lunar-scripts`, not to `main` | copy the new commit hash from GitLab into the URL |
-| Server binaries | `ServerUrl`, `ServerBytes`, `ServerSha256` | download the new release archive, copy its size and SHA256 into `$Config` |
+| Patcher scripts | `ScriptsRaw` points to a `lunar-scripts` commit, not to `main` | copy the new commit hash into the URL |
+| Server binaries | `ServerUrl`, `ServerBytes`, `ServerSha256` | copy size and SHA256 of the new release archive into `$Config` |
+| Toolchain and stock APK | `*Bytes`, `*Sha256` | copy size and SHA256 of the new file |
 
-The server archive is verified (SHA256) before it is extracted. The MuMu
-installer is checked with its Authenticode signature (the publisher must contain
-"Netease") before it is launched elevated; if the check fails, the GUI asks for
-confirmation and the console mode aborts.
-
-To follow the latest server release again, set `ServerUrl` to an empty string
-and clear `ServerSha256`.
-
-### Do not commit these files
-
-`.gitignore` already excludes the APK, the assets, the master data, the
-toolchain and the `server/` folder. Keep it that way: the repository must not
-contain copyrighted game content.
-
----
+To follow the latest server release again, set `ServerUrl` to an empty string and
+clear `ServerSha256`. The MuMu installer is checked with its Authenticode
+signature (the publisher must contain "Netease") before it is launched elevated;
+if the check fails, the GUI asks for confirmation and the console mode aborts.
 
 ## Offline installation
 
@@ -241,28 +192,24 @@ If the files are already on disk, the installer uses them and skips the download
 |---|---|
 | Server binaries | `server\wizard.exe` + `server\bin\` |
 | Game assets | `server\assets\revisions\` |
-| Master data | `server\assets\release\20240404193219.bin.e` (already patched, or the original to be patched) |
+| Master data | `server\assets\release\20240404193219.bin.e` (patched or original) |
 | Stock APK | `apk\stock\nier-3.7.1-stock.apk` |
-| Patched APK | `apk\out\nier-patched.apk` (any previously built APK is reused) |
+| Patched APK | `apk\out\nier-patched.apk` (any previous build is reused) |
 | Assets archive | `downloads\resource_dump_android.7z` |
 | Toolchain | `tools\jdk*`, `tools\apktool.jar`, `tools\android-sdk\build-tools`, `tools\python` |
 | Patcher scripts | `tools\lunar-scripts\` |
 | MuMu offline package | `tools\mumu\offline\MuMuNG-offline-setup.exe` |
 
 A master data file that is neither the archive.org original nor a file this
-installer patched is left untouched (it is assumed to be intentional).
-
-The only other network request is the optional update check at startup; when it
-fails the installer simply carries on.
-
----
+installer patched is left untouched. The only other network request is the
+optional update check, which never blocks.
 
 ## Development
 
 The installer is a single PowerShell file on purpose: the executable is that
 file, so what you read is what runs.
 
-```
+```powershell
 # lint
 Invoke-ScriptAnalyzer -Path "Cage Setup.ps1" -Settings PSScriptAnalyzerSettings.psd1
 
@@ -273,85 +220,61 @@ Invoke-Pester -Path tests -Output Detailed
 powershell -ExecutionPolicy Bypass -File "Cage Setup.ps1" -Console
 ```
 
-The GitHub workflow runs the same commands, then builds the executable and
-smoke-tests it: it starts the packed script with `-Console` and checks that the
-output is complete and that the script resolves its own folder. On a tag it also
-checks that the tag matches `$Script:AppVersion`.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and
+The workflow runs the same commands, builds the executable and smoke-tests the
+packed script. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and
 [SECURITY.md](SECURITY.md) to report a problem privately.
-
----
 
 ## Troubleshooting
 
-**Windows says "Windows protected your PC", or the antivirus flags the executable.**
-`CageSetup.exe` is not code-signed, and executables packed from a PowerShell
-script are a common source of false positives. The file is built from
-`Cage Setup.ps1` in this repository by
-[`.github/workflows/build.yml`](.github/workflows/build.yml): compare its
-SHA256 with the one published next to the release, or
-[build it yourself](#the-executable). You can also run `Cage Setup.ps1`
-directly and skip the executable entirely.
+**Windows says "Windows protected your PC", or the antivirus flags the file.**
+`CageSetup.exe` is not code-signed, and executables packed from PowerShell are a
+common source of false positives. Compare its SHA256 with the published one,
+[build it yourself](#the-executable), or run `Cage Setup.ps1` directly.
 
 **The executable does not start.**
-Accept the UAC prompt: administrator rights are needed to install MuMu Player.
-To see the actual error, open a PowerShell window in this folder and run:
-
-```
-powershell -NoProfile -ExecutionPolicy Bypass -File "Cage Setup.ps1"
-```
+Accept the UAC prompt: administrator rights are needed for MuMu. For the actual
+error, run `powershell -NoProfile -ExecutionPolicy Bypass -File "Cage Setup.ps1"`.
 
 **The installer asks whether to run the MuMu installer.**
-Its Authenticode signature is not valid, or it was not signed by NetEase. That
-is what happens with a modified or repackaged offline package: answer **No**
-unless the file comes from the official source.
+Its Authenticode signature is invalid or not from NetEase. Answer **No** unless
+the file comes from the official source.
 
 **The MuMu window stays hidden for a long time.**
-The silent installation hides MuMu's own windows. If no progress is detected for
-4 minutes the installer kills the setup and retries once with the window visible.
-Windows does not allow one process to re-show another process' window, which is
-why it restarts the setup instead.
+If no progress is detected for 4 minutes the installer kills the setup and
+retries once with the window visible. Windows does not allow one process to
+re-show another process' window, hence the restart.
 
-**The emulator step says "Waiting" even though MuMu is installed.**
-The debloat, the client and the ARM bridge can only be checked while the
-emulator is running. Press **Start setup** (or *Launch game*) and the installer
-starts it; the step turns green when everything is verified.
+**The emulator step says "Waiting" although MuMu is installed.**
+The debloat, client and ARM bridge can only be checked while the emulator runs.
+Press **Start setup** (or **Launch game**) and the step turns green when verified.
 
 **The asset download is huge.**
-The archive is 14.93 GB and extracts to about 48.8 GB. Make sure you have at
-least 75 GB free on `C:`. The download resumes if interrupted.
+14.93 GB compressed, ~48.8 GB extracted; the installer checks the free space
+before downloading and before extracting. The download resumes if interrupted.
 
 **The client build fails.**
-Check the log: the failing tool and its output are written there. The usual
-causes are a missing `curl.exe` (Windows older than 10 version 1803), a
-temporary APKMirror outage, or an updated `patch_apk.py` in the upstream
-repository. The stock APK is kept in `apk\stock\`, so the download is not
-repeated. Delete `apk\out\nier-patched.apk` to force a rebuild.
+The log names the failing tool and its output. Usual causes: no `curl.exe`
+(Windows older than 10 1803), an APKMirror outage, or an updated `patch_apk.py`.
+The stock APK stays in `apk\stock\`; delete `apk\out\nier-patched.apk` to rebuild.
 
 **APKMirror refuses the connection.**
-The APKMirror web pages are fetched with `curl.exe`, because the site rejects
-the .NET HTTP stack with a 403. If the page layout changes, the log will say
-"download link not found": download the APK manually from the link above, save
-it as `apk\stock\nier-3.7.1-stock.apk` and press the button again.
+Its pages are read with `curl.exe` because the site rejects the .NET HTTP stack.
+If the layout changes the log says "download link not found": download the APK
+manually, save it as `apk\stock\nier-3.7.1-stock.apk` and press the button again.
 
 **Re-enable a removed package.**
+
 ```
 adb -s 127.0.0.1:7555 shell pm install-existing <package>
 adb -s 127.0.0.1:7555 shell pm enable --user 0 <package>
 ```
 
----
-
 ## License
 
-The installer code is released under the [MIT License](LICENSE).
-
-That covers this repository only: NieR Re[in]carnation and its assets belong to
-Square Enix, while the Lunar Tear server and the lunar-scripts patchers remain
-their own projects with their own authors. No game content is distributed here.
-
----
+The installer code is released under the [MIT License](LICENSE). That covers this
+repository only: NieR Re[in]carnation and its assets belong to Square Enix, while
+the Lunar Tear server and the lunar-scripts patchers remain their own projects.
+No game content is distributed here.
 
 ## Credits
 
@@ -359,9 +282,9 @@ their own projects with their own authors. No game content is distributed here.
 - **lunar-scripts** patchers (`patch_apk.py`, `patch_masterdata.py`) - [walter-sparrow-group](https://gitlab.com/walter-sparrow-group/lunar-scripts)
 
 **Without their work this installer would not exist.** The server, the client
-patch and the master data patch are all built on the Lunar Tear project and on
-the lunar-scripts tooling; Cage Setup only automates the steps around them.
+patch and the master data patch are built on the Lunar Tear project and the
+lunar-scripts tooling; Cage Setup only automates the steps around them.
 
-NieR Re[in]carnation and all related assets are property of Square Enix.
-This project is a community preservation effort and is not affiliated with
-Square Enix, NetEase or the Lunar Tear project.
+NieR Re[in]carnation and all related assets are property of Square Enix. This
+project is a community preservation effort, not affiliated with Square Enix,
+NetEase or the Lunar Tear project.

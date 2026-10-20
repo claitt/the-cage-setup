@@ -34,6 +34,9 @@ Out of scope (report these to their authors):
 
 - The server archive comes from a pinned release and is checked against a
   SHA256 before it is extracted.
+- The toolchain (JRE, apktool, build tools, Python) and the stock APK are pinned
+  by size and SHA256; a mismatch deletes the file and fails the step.
+- The game assets and the master data use the SHA1 published by archive.org.
 - The patcher scripts are pinned to a commit of `lunar-scripts`.
 - The MuMu installer must have a valid Authenticode signature from NetEase
   before it is launched with administrator rights.
