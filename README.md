@@ -41,8 +41,8 @@ is missing, so you can see at a glance whether the PC is ready.
    [build it yourself](#the-executable).
 2. Run it and accept the administrator prompt (it is needed to install MuMu
    Player). The window lists six steps. Each one shows **Ready** (green),
-   **Waiting** (grey) or **Problem** (red); step 1 also tells you what to fix,
-   if anything.
+   **Waiting** (grey), **Check** (amber) or **Problem** (red); step 1 also tells
+   you what to fix, if anything.
 3. Press **Start setup** (about 20 GB of downloads): the installer runs the
    steps that are not ready yet and skips everything already in place.
 4. When the button changes to **Launch game**, the server is running: click it.
