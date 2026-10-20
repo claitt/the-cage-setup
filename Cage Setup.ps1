@@ -4,7 +4,8 @@
 #  Guided GUI that downloads, installs and configures everything.
 #  Every download shows status, percentage, speed and estimated time.
 #
-#  Normal use:  double-click "Cage Setup.cmd"
+#  Normal use:  CageSetup.exe (packed from this file by GitHub Actions)
+#  From source: powershell -ExecutionPolicy Bypass -File "Cage Setup.ps1"
 #  Diagnostics: powershell -ExecutionPolicy Bypass -File "Cage Setup.ps1" -Console
 #
 #  CREDITS
@@ -33,8 +34,18 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Net.Http
 
-$Root = Split-Path -Parent $MyInvocation.MyCommand.Definition
-if (-not $Root) { $Root = (Get-Location).Path }
+# Running packed as CageSetup.exe? Then the script has no path of its own and
+# everything (downloads, tools, server) lives next to the executable instead.
+# CAGE_SETUP_ROOT overrides the folder, which the test harness uses.
+$HostExe = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+if ($env:CAGE_SETUP_ROOT) {
+    $Root = $env:CAGE_SETUP_ROOT
+} elseif ($HostExe -and (Split-Path -Leaf $HostExe) -notmatch '^(powershell|pwsh)(_ise)?\.exe$') {
+    $Root = Split-Path -Parent $HostExe
+} else {
+    $Root = Split-Path -Parent $MyInvocation.MyCommand.Definition
+    if (-not $Root) { $Root = (Get-Location).Path }
+}
 $LogFile = Join-Path $Root 'installer-log.txt'
 
 # ---------------------------------------------------------------------
@@ -105,7 +116,6 @@ $Paths = @{
     ServerDir        = Join-Path $Root 'server'
     AssetsDir        = Join-Path $Root 'server\assets'
     Downloads        = Join-Path $Root 'downloads'
-    StartServerCmd   = Join-Path $Root 'Start Server.cmd'
     Adb              = $null   # detected at runtime
     JdkDir           = Join-Path $Root 'tools\jdk'
     ApktoolJar       = Join-Path $Root 'tools\apktool.jar'
@@ -1525,11 +1535,7 @@ function Action-StartServer {
     Write-Log 'Server: checking the status' 'STEP'
     if (Test-ServerRunning) { Write-Log 'Server already running (ports 8003/8080)' 'OK'; return $true }
     if (-not (Test-ServerFiles)) { Write-Log 'Server binaries are missing: download the game first' 'ERROR'; return $false }
-    if (Test-Path $Paths.StartServerCmd) {
-        Start-Process -FilePath $Paths.StartServerCmd | Out-Null
-    } else {
-        Start-Process -FilePath (Join-Path $Paths.ServerDir 'wizard.exe') -ArgumentList '--prefer-saved' -WorkingDirectory $Paths.ServerDir | Out-Null
-    }
+    Start-Process -FilePath (Join-Path $Paths.ServerDir 'wizard.exe') -ArgumentList '--prefer-saved' -WorkingDirectory $Paths.ServerDir | Out-Null
     for ($i = 0; $i -lt 30; $i++) { Start-Sleep -Seconds 1; if (Test-ServerRunning) { break }; [Windows.Forms.Application]::DoEvents() }
     if (Test-ServerRunning) { Write-Log 'Server started' 'OK'; return $true }
     Write-Log 'Server not detected on ports 8003/8080' 'WARN'; return $false

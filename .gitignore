@@ -53,6 +53,7 @@ tools/mumu/INVENTARIO.md
 # Generated at runtime
 installer-log.txt
 installer-log.*.txt
+dist/
 tools/mumu/inventory.txt
 tools/mumu/*.png
 tools/mumu/report-*.md

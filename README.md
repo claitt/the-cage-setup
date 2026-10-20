@@ -4,10 +4,10 @@ An unofficial, guided Windows installer for the **NieR Re[in]carnation** private
 server ([Lunar Tear](https://gitlab.com/walter-sparrow-group/lunar-tear), mirrored on
 [GitHub](https://github.com/Walter-Sparrow/lunar-tear)).
 
-Double-click, press **Start setup**, and the installer downloads, installs and
-configures everything: the MuMu Player emulator, the server, the game data and
-the patched client. Every download shows status, percentage, speed and the
-estimated time left.
+Double-click **`CageSetup.exe`**, press **Start setup**, and the installer
+downloads, installs and configures everything: the MuMu Player emulator, the
+server, the game data and the patched client. Every download shows status,
+percentage, speed and the estimated time left.
 
 > This package contains **no game APK, no game assets and no master data**.
 > The stock APK is downloaded from APKMirror and patched on your PC; the game
@@ -34,12 +34,20 @@ is missing, so you can see at a glance whether the PC is ready.
 
 ## Usage
 
-1. Double-click **`Cage Setup.cmd`** (it asks for administrator rights).
-2. The window lists six steps. Each one shows **Ready** (green), **Waiting**
-   (grey) or **Problem** (red); step 1 also tells you what to fix, if anything.
+1. Download **`CageSetup.exe`** from the [Releases](https://github.com/claitt/cage-setup/releases)
+   page and put it in a folder you can write to (Desktop, Downloads, ...), or
+   [build it yourself](#the-executable).
+2. Run it and accept the administrator prompt (it is needed to install MuMu
+   Player). The window lists six steps. Each one shows **Ready** (green),
+   **Waiting** (grey) or **Problem** (red); step 1 also tells you what to fix,
+   if anything.
 3. Press **Start setup** (about 20 GB of downloads): the installer runs the
    steps that are not ready yet and skips everything already in place.
 4. When the button changes to **Launch game**, the server is running: click it.
+
+Everything the installer downloads (tools, client, assets, server) is kept in
+the folder that contains `CageSetup.exe`, so the whole setup is portable: copy
+the folder or delete it to start over.
 
 ### The six steps
 
@@ -89,6 +97,51 @@ to be hosted anywhere.
 - **Advanced...** - runs a single component instead of the whole sequence:
   emulator, game files, client installation, server, ARM check, package inventory.
 - **Start / Stop / Restart** (server row) - controls the private server.
+
+---
+
+## The executable
+
+`CageSetup.exe` is **not a separate program**: it is `Cage Setup.ps1` from this
+repository packed into a single executable with
+[ps2exe](https://github.com/MScholtes/PS2EXE). The script stays in the
+repository in plain text, so you can read exactly what the installer does before
+running it, and you can build the same executable yourself.
+
+The executable embeds an administrator manifest (`requireAdministrator`), which
+is why Windows shows the UAC prompt when it starts.
+
+### Build it yourself
+
+On GitHub: open **Actions → Build CageSetup.exe → Run workflow**. The build runs
+on a clean Windows runner, checks that the script parses, packs it and uploads
+`CageSetup.exe` together with its SHA256 as downloadable artifacts. Pushing a
+tag such as `v1.0.0` also publishes both files on the Releases page.
+
+On your PC (PowerShell 5.1):
+
+```powershell
+Install-Module ps2exe -Scope CurrentUser
+Invoke-PS2EXE -InputFile "Cage Setup.ps1" -OutputFile "CageSetup.exe" `
+  -noConsole -requireAdmin -STA -iconFile "assets\cage.ico" `
+  -title "Cage Setup" -product "Cage Setup" -version "1.0.0.0"
+```
+
+The exact command used by the automated build is in
+[`.github/workflows/build.yml`](.github/workflows/build.yml).
+
+### Or run the script directly
+
+No executable is required. From a PowerShell window in this folder:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "Cage Setup.ps1"
+```
+
+The script behaves like the executable; the differences are the window icon and
+the fact that it does not ask for administrator rights by itself (start
+PowerShell as administrator if you need to install MuMu Player). Double-clicking
+the `.ps1` does not run it: Windows opens `.ps1` files in an editor.
 
 ---
 
@@ -160,18 +213,22 @@ installer patched is left untouched (it is assumed to be intentional).
 
 ## Troubleshooting
 
-**Double-clicking `Cage Setup.cmd` does nothing.**
-The launcher asks Windows for administrator rights and then opens the GUI; if
-the UAC prompt is cancelled nothing happens. Run it again and choose **Yes**.
-To see the actual error, open a command prompt in this folder and run:
+**Windows says "Windows protected your PC", or the antivirus flags the executable.**
+`CageSetup.exe` is not code-signed, and executables packed from a PowerShell
+script are a common source of false positives. The file is built from
+`Cage Setup.ps1` in this repository by
+[`.github/workflows/build.yml`](.github/workflows/build.yml): compare its
+SHA256 with the one published next to the release, or
+[build it yourself](#the-executable). You can also run `Cage Setup.ps1`
+directly and skip the executable entirely.
+
+**The executable does not start.**
+Accept the UAC prompt: administrator rights are needed to install MuMu Player.
+To see the actual error, open a PowerShell window in this folder and run:
 
 ```
 powershell -NoProfile -ExecutionPolicy Bypass -File "Cage Setup.ps1"
 ```
-
-Note that double-clicking **`Cage Setup.ps1` directly does not start it**:
-Windows opens `.ps1` files in an editor. Always use `Cage Setup.cmd`, and keep
-the two files in the same folder.
 
 **The MuMu window stays hidden for a long time.**
 The silent installation hides MuMu's own windows. If no progress is detected for
