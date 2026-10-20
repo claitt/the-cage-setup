@@ -168,7 +168,7 @@ function Get-DataPathMap {
 
 # Version of the installer: this is the single source of truth. The build
 # workflow reads this line and refuses to build a tag that does not match it.
-$Script:AppVersion = '1.4.0'
+$Script:AppVersion = '1.4.1'
 
 # ---------------------------------------------------------------------
 #  SOURCES AND PATHS  (edit here when you redistribute the installer)
@@ -536,39 +536,61 @@ function Save-DataRoot {
     }
 }
 
-# What a folder already contains, shown before switching to it.
+# What a folder already contains, shown before switching to it. The "missing"
+# part is the actual plan, not a checklist: the stock APK and the build toolchain
+# are only listed when the patched client has to be built, and the archive is
+# not requested when the assets are already extracted.
 function Get-FilesFolderReport {
     param([Parameter(Mandatory)][string]$Path)
-    $checks = [ordered]@{}
-    $checks['server binaries'] = (Test-Path -LiteralPath (Join-Path $Path 'server\wizard.exe')) -and
+
+    $server = (Test-Path -LiteralPath (Join-Path $Path 'server\wizard.exe')) -and
         (Test-Path -LiteralPath (Join-Path $Path 'server\bin'))
     $revisions = Join-Path $Path 'server\assets\revisions'
-    $checks['extracted game assets'] = (Test-Path -LiteralPath $revisions) -and
+    $assets = (Test-Path -LiteralPath $revisions) -and
         [bool](Get-ChildItem -LiteralPath $revisions -Directory -ErrorAction SilentlyContinue | Select-Object -First 1)
-    $checks['master data'] = Test-Path -LiteralPath (Join-Path $Path 'server\assets\release\20240404193219.bin.e')
+    $master = Test-Path -LiteralPath (Join-Path $Path 'server\assets\release\20240404193219.bin.e')
     $archive = @(
         (Join-Path $Path 'downloads\resource_dump_android.7z'),
         (Join-Path $Path 'resource_dump_android.7z')
     ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-    $checks['game assets archive'] = [bool]$archive
-    $checks['stock APK'] = Test-Path -LiteralPath (Join-Path $Path 'apk\stock\nier-3.7.1-stock.apk')
-    $checks['patched client'] = Test-Path -LiteralPath (Join-Path $Path 'apk\out\nier-patched.apk')
-    $checks['build toolchain'] = (Test-Path -LiteralPath (Join-Path $Path 'tools\jdk')) -or
+    $stock = Test-Path -LiteralPath (Join-Path $Path 'apk\stock\nier-3.7.1-stock.apk')
+    $client = @(
+        (Join-Path $Path 'apk\out\nier-patched.apk'),
+        (Join-Path $Path 'apk\out\nier_aligned.apk'),
+        (Join-Path $Path 'client-nier-reincarnation-patched.apk')
+    ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    $toolchain = (Test-Path -LiteralPath (Join-Path $Path 'tools\jdk')) -or
         (Test-Path -LiteralPath (Join-Path $Path 'tools\apktool.jar'))
 
     $found = @()
-    $missing = @()
-    foreach ($key in $checks.Keys) {
-        if ($checks[$key]) { $found += $key } else { $missing += $key }
-    }
+    if ($server) { $found += 'server binaries' }
+    if ($assets) { $found += 'extracted game assets' }
+    if ($master) { $found += 'master data' }
     if ($archive) {
         $size = (Get-Item -LiteralPath $archive).Length
         $label = 'game assets archive (' + (Format-Size $size) + ')'
         if ($Config.AssetsBytes -and $size -ne $Config.AssetsBytes) {
             $label = 'game assets archive (' + (Format-Size $size) + ', expected ' + (Format-Size $Config.AssetsBytes) + ')'
         }
-        $found = @($found | ForEach-Object { if ($_ -eq 'game assets archive') { $label } else { $_ } })
+        $found += $label
     }
+    if ($stock) { $found += 'stock APK' }
+    if ($client) { $found += 'patched client' }
+    if ($toolchain) { $found += 'build toolchain' }
+
+    $missing = @()
+    if (-not $server) { $missing += 'server binaries' }
+    if (-not $master) { $missing += 'master data' }
+    if (-not $assets) {
+        if ($archive) { $missing += 'extract the game assets' }
+        else { $missing += 'game assets archive (14.9 GB)' }
+    }
+    if (-not $client) {
+        if (-not $stock) { $missing += 'stock APK' }
+        $missing += 'patched client (built from the stock APK)'
+        $missing += 'build toolchain (Java, apktool, Android build tools, Python)'
+    }
+
     return [pscustomobject]@{
         Path    = Get-NormalFolderPath -Path $Path
         Found   = [string[]]$found
@@ -584,7 +606,7 @@ function Format-FilesFolderStatus {
         $text = 'No Cage Setup files here yet.'
     }
     if ($Report.Missing.Count -gt 0) {
-        $text += "`r`nStill to get: " + ($Report.Missing -join ', ')
+        $text += "`r`nStill to do: " + ($Report.Missing -join ', ')
     } else {
         $text += "`r`nEverything is already there."
     }
@@ -2881,7 +2903,7 @@ function Use-FilesFolder {
         $message += "This folder has no Cage Setup files yet: everything will be downloaded there.`r`n`r`n"
     }
     if ($report.Missing.Count -gt 0) {
-        $message += "Still to get:`r`n- " + ($report.Missing -join "`r`n- ")
+        $message += "Still to do:`r`n- " + ($report.Missing -join "`r`n- ")
     } else {
         $message += 'Everything is already there.'
     }

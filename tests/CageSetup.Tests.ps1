@@ -86,8 +86,31 @@ Describe 'Game files folder' {
         $report.Found | Should -Contain 'master data'
         $report.Found | Should -Contain 'patched client'
         ($report.Found -join ' ') | Should -Match 'game assets archive'
+        # a patched client and the extracted assets leave nothing to do
+        $report.Missing.Count | Should -Be 0
+    }
+
+    It 'asks for the toolchain only when the client has to be built' {
+        $dir = Join-Path $TestDrive 'no-client'
+        New-Item -ItemType Directory -Force -Path (Join-Path $dir 'server\bin') | Out-Null
+        New-Item -ItemType File -Force -Path (Join-Path $dir 'server\wizard.exe') | Out-Null
+
+        $report = Get-FilesFolderReport -Path $dir
+        $report.Found | Should -Contain 'server binaries'
         $report.Missing | Should -Contain 'stock APK'
-        $report.Missing | Should -Contain 'build toolchain'
+        ($report.Missing -join ' ') | Should -Match 'patched client'
+        ($report.Missing -join ' ') | Should -Match 'build toolchain'
+        ($report.Missing -join ' ') | Should -Match 'game assets archive \(14\.9 GB\)'
+    }
+
+    It 'asks only for the extraction when the archive is already there' {
+        $dir = Join-Path $TestDrive 'archive-only'
+        New-Item -ItemType Directory -Force -Path (Join-Path $dir 'downloads') | Out-Null
+        Set-Content -Path (Join-Path $dir 'downloads\resource_dump_android.7z') -Value 'x'
+
+        $report = Get-FilesFolderReport -Path $dir
+        $report.Missing | Should -Contain 'extract the game assets'
+        ($report.Missing -join ' ') | Should -Not -Match 'game assets archive'
     }
 
     It 'also finds an archive saved at the root of the folder' {
@@ -156,7 +179,7 @@ Describe 'Game files folder' {
         }
         $text = Format-FilesFolderStatus -Report $report
         $text | Should -Match 'Found: server binaries'
-        $text | Should -Match 'Still to get: stock APK'
+        $text | Should -Match 'Still to do: stock APK'
     }
 }
 

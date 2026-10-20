@@ -119,7 +119,7 @@ On your PC (PowerShell 5.1):
 Install-Module ps2exe -Scope CurrentUser
 Invoke-PS2EXE -InputFile "Cage Setup.ps1" -OutputFile "CageSetup.exe" `
   -noConsole -requireAdmin -STA -iconFile "assets\cage.ico" `
-  -title "Cage Setup" -product "Cage Setup" -version "1.4.0.0"
+  -title "Cage Setup" -product "Cage Setup" -version "1.4.1.0"
 ```
 
 The exact command is in [`.github/workflows/build.yml`](.github/workflows/build.yml).
@@ -210,8 +210,11 @@ folder instead of `downloads\`.
 | MuMu offline package | `tools\mumu\offline\MuMuNG-offline-setup.exe` |
 
 A master data file that is neither the archive.org original nor a file this
-installer patched is left untouched. The only other network request is the
-optional update check, which never blocks.
+installer patched is left untouched. Only what is missing is fetched: the build
+toolchain (Java, apktool, Android build tools, Python) is downloaded only when
+the patched client has to be built, so a folder that already contains a patched
+APK does not need it. The only other network request is the optional update
+check, which never blocks.
 
 ## Development
 
