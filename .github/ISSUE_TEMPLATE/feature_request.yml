@@ -1,0 +1,38 @@
+name: Feature request
+description: Suggest a change to the installer
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep in mind what this project is: a wrapper that downloads and runs the
+        Lunar Tear server and the lunar-scripts patchers. Changes to the game,
+        the server or the patchers belong to their upstream projects.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the situation, not only the solution you have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like the installer to do?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Cage Setup version
+      description: Shown in the window title, or as "Version" by `-Console`.
+      placeholder: "1.4.1"
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched the existing issues and did not find the same request.
+          required: true
+        - label: This is about the installer, not about the game, the server or the patchers.
+          required: true
