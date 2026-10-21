@@ -1,7 +1,12 @@
-# Pester tests for the installer logic.
+﻿# Pester tests for the installer logic.
 #
-# They load "Cage Setup.ps1" without running the GUI or the console entry
-# point, then check the parts that do not need an emulator or the game files.
+# They load the modules in lib\ and the first part of "Cage Setup.ps1" without
+# running the GUI or the console entry point, then check the parts that do not
+# need an emulator or the game files.
+#
+# TODO: nothing here covers the GUI, the download engine or a real emulator.
+# Those are still checked by hand; the clean-Windows test matrix is an open
+# issue.
 #
 #   Install-Module Pester -Scope CurrentUser -RequiredVersion 5.7.1
 #   Invoke-Pester -Path tests -Output Detailed
@@ -10,11 +15,25 @@ BeforeAll {
     $script:Repo = Split-Path -Parent $PSScriptRoot
     $env:CAGE_SETUP_ROOT = $script:Repo
 
+    # The logic lives in lib\*.ps1; load it the same way the installer does
+    # when it runs from source.
+    foreach ($lib in (Get-ChildItem (Join-Path $script:Repo 'lib') -Filter '*.ps1' | Sort-Object Name)) {
+        . $lib.FullName
+    }
+
     $source = Get-Content -Raw (Join-Path $script:Repo 'Cage Setup.ps1')
     $cut = $source.IndexOf('#  CONSOLE / DIAGNOSTICS')
     if ($cut -lt 0) { throw 'Marker "#  CONSOLE / DIAGNOSTICS" not found in Cage Setup.ps1' }
-    $logic = $source.Substring(0, $cut) -replace '(?m)^#Requires -Version 5\.1\s*$', ''
+    $logic = $source.Substring(0, $cut)
+    # The installer dot-sources the modules; the tests have loaded them already.
+    $logic = $logic -replace '(?ms)^# @@LIBS-START.*?^# @@LIBS-END\s*$', ''
+    $logic = $logic -replace '(?m)^#Requires -Version 5\.1\s*$', ''
     . ([scriptblock]::Create($logic))
+}
+
+AfterAll {
+    # Do not leave the test override behind for the next process.
+    Remove-Item Env:CAGE_SETUP_ROOT -ErrorAction SilentlyContinue
 }
 
 Describe 'Download sources' {

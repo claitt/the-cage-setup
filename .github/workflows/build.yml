@@ -1,8 +1,8 @@
 name: Build CageSetup.exe
 
-# The repository ships the installer as a readable PowerShell script.
-# This workflow turns that exact script into CageSetup.exe, so the executable
-# can be reproduced by anyone: no build step happens outside this file.
+# The repository ships the installer as readable PowerShell sources: the main
+# script (sources, console output, GUI) and the modules in lib\. build.ps1
+# inlines them into one file, so the executable stays self-contained.
 #
 # It runs the linter and the Pester tests, packs the script, smoke-tests the
 # packed executable, and (on tags) publishes it with a build attestation.
@@ -47,17 +47,19 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           Write-Host "Version: $version"
 
-      - name: Check that the script parses
+      - name: Check that the sources parse
         shell: powershell
         run: |
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            (Join-Path $PWD 'Cage Setup.ps1'), [ref]$null, [ref]$errors) | Out-Null
-          if ($errors) {
-            $errors | ForEach-Object { Write-Host "ERROR: $($_.Message)" }
-            exit 1
+          $files = @('Cage Setup.ps1') + @(Get-ChildItem 'lib' -Filter '*.ps1' | ForEach-Object { $_.FullName })
+          foreach ($file in $files) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) {
+              $errors | ForEach-Object { Write-Host "ERROR in ${file}: $($_.Message)" }
+              exit 1
+            }
           }
-          Write-Host 'Cage Setup.ps1 parses without errors.'
+          Write-Host 'The script and the modules parse without errors.'
 
       - name: Install the build tools
         shell: powershell
@@ -69,10 +71,12 @@ jobs:
           Install-Module ps2exe, PSScriptAnalyzer -Scope CurrentUser -Force -AllowClobber -Confirm:$false
           Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force -SkipPublisherCheck -Confirm:$false
 
-      - name: Lint the script
+      - name: Lint the sources
         shell: powershell
         run: |
-          $findings = Invoke-ScriptAnalyzer -Path 'Cage Setup.ps1' -Settings 'PSScriptAnalyzerSettings.psd1'
+          $findings = @()
+          $findings += Invoke-ScriptAnalyzer -Path 'Cage Setup.ps1' -Settings 'PSScriptAnalyzerSettings.psd1'
+          $findings += Invoke-ScriptAnalyzer -Path 'lib' -Settings 'PSScriptAnalyzerSettings.psd1' -Recurse
           if ($findings) {
             $findings | ForEach-Object {
               Write-Host "::error file=$($_.ScriptName),line=$($_.Line)::$($_.RuleName): $($_.Message)"
@@ -91,18 +95,10 @@ jobs:
       - name: Build CageSetup.exe
         shell: powershell
         run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
-          Invoke-PS2EXE -InputFile 'Cage Setup.ps1' `
-                        -OutputFile 'dist\CageSetup.exe' `
-                        -noConsole `
-                        -requireAdmin `
-                        -STA `
-                        -iconFile 'assets\cage.ico' `
-                        -title 'Cage Setup' `
-                        -product 'Cage Setup' `
-                        -description 'Guided installer for the NieR Re[in]carnation private server' `
-                        -company 'Cage Setup contributors' `
-                        -version "${{ steps.version.outputs.version }}.0"
+          # build.ps1 inlines lib\*.ps1 into dist\CageSetup.bundled.ps1 and
+          # packs that file, so the executable stays a single file.
+          .\build.ps1 -Pack
+          if (-not (Test-Path 'dist\CageSetup.exe')) { throw 'build.ps1 did not produce dist\CageSetup.exe' }
           $hash = (Get-FileHash 'dist\CageSetup.exe' -Algorithm SHA256).Hash
           "$hash  CageSetup.exe" | Set-Content 'dist\CageSetup.exe.sha256' -Encoding ASCII
           Get-Item 'dist\CageSetup.exe' | Select-Object Name, Length
@@ -113,7 +109,7 @@ jobs:
           # The packed script must start, report its diagnostics and resolve its
           # own folder (a plain .ps1 would use the script folder instead).
           New-Item -ItemType Directory -Force 'dist\smoke' | Out-Null
-          Invoke-PS2EXE -InputFile 'Cage Setup.ps1' -OutputFile 'dist\smoke\CageSetup-smoke.exe' `
+          Invoke-PS2EXE -InputFile 'dist\CageSetup.bundled.ps1' -OutputFile 'dist\smoke\CageSetup-smoke.exe' `
                         -STA -iconFile 'assets\cage.ico' -title 'Cage Setup' -product 'Cage Setup'
           $output = & 'dist\smoke\CageSetup-smoke.exe' -Console 2>&1 | Out-String
           $code = $LASTEXITCODE
@@ -152,6 +148,7 @@ jobs:
           path: |
             dist/CageSetup.exe
             dist/CageSetup.exe.sha256
+            dist/CageSetup.bundled.ps1
 
       - name: Attach the build to the release
         if: startsWith(github.ref, 'refs/tags/v')
