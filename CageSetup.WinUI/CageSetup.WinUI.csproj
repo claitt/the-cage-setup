@@ -6,7 +6,7 @@
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <RootNamespace>CageSetup.WinUI</RootNamespace>
-    <AssemblyName>CageSetup2</AssemblyName>
+    <AssemblyName>TheCageSetup</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\Lunar_Tear.ico</ApplicationIcon>
     <Platforms>x64</Platforms>

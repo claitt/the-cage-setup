@@ -9,8 +9,10 @@ Unofficial Windows setup for NieR Reincarnation, through the Lunar Tear private 
 ## Download
 
 1. Open the [latest release](https://github.com/claitt/the-cage-setup/releases/latest).
-2. Under Assets, download `CageSetup2-2.0.0-win-x64.exe`.
+2. Under Assets, download `TheCageSetup.exe`.
 3. Put it in a folder it can keep using, then run it. Nothing to install: game files and server data are created next to the executable.
+
+Keep the file name as it is. The single-file build looks up its bundled resources by its own name, so a renamed copy will not start.
 
 The build is not code-signed, so Windows SmartScreen shows an unknown-publisher warning. Choose "More info", then "Run anyway".
 

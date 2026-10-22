@@ -1,4 +1,4 @@
-# Builds and publishes the WinUI 3 shell of Cage Setup 2.0.
+﻿# Builds and publishes the WinUI 3 shell of Cage Setup 2.0.
 #
 #   powershell -ExecutionPolicy Bypass -File .\build-winui.ps1
 #
@@ -39,16 +39,16 @@ New-Item -ItemType Directory -Force -Path $dist | Out-Null
 # Kill leftovers whose working directory lives inside dist: an orphan
 # adb.exe child (started by a killed app) keeps dist un-deletable even
 # when its own executable lives outside the folder.
-foreach ($name in @('CageSetup2', 'adb', 'wizard', 'auth-server', 'octo-cdn', 'lunar-tear')) {
+foreach ($name in @('TheCageSetup', 'CageSetup2', 'adb', 'wizard', 'auth-server', 'octo-cdn', 'lunar-tear')) {
     Get-Process -Name $name -ErrorAction SilentlyContinue |
         Stop-Process -Force -ErrorAction SilentlyContinue
 }
 Start-Sleep -Milliseconds 500
 
-if (Test-Path $dist\CageSetup2) { Remove-Item $dist\CageSetup2 -Recurse -Force }
-Copy-Item $published $dist\CageSetup2 -Recurse
+if (Test-Path $dist\TheCageSetup) { Remove-Item $dist\TheCageSetup -Recurse -Force }
+Copy-Item $published $dist\TheCageSetup -Recurse
 
-$exe = Join-Path $dist 'CageSetup2\CageSetup2.exe'
+$exe = Join-Path $dist 'TheCageSetup\TheCageSetup.exe'
 $size = [math]::Round((Get-Item $exe).Length / 1MB, 1)
-$total = [math]::Round((Get-ChildItem $dist\CageSetup2 -Recurse | Measure-Object Length -Sum).Sum / 1MB, 1)
+$total = [math]::Round((Get-ChildItem $dist\TheCageSetup -Recurse | Measure-Object Length -Sum).Sum / 1MB, 1)
 Write-Host "Built $exe (exe $size MB, folder $total MB)"
