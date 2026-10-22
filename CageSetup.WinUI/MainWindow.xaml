@@ -1,0 +1,332 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="CageSetup.WinUI.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CageSetup.WinUI.Controls"
+    xmlns:pages="using:CageSetup.WinUI.Pages"
+    Title="Lunar Tear &#xB7; The Cage Setup 2.0">
+
+    <Grid x:Name="Root" Background="Transparent">
+        <!-- Concept art of The Cage, olive veil on top, like the prototype. -->
+        <Image x:Name="ArtImage"
+               Source="ms-appx:///Assets/Cage_Background.jpg"
+               Stretch="UniformToFill" />
+
+        <Rectangle x:Name="Veil">
+            <Rectangle.Fill>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                    <GradientStop Color="#3F3A382C" Offset="0" />
+                    <GradientStop Color="#553F3D33" Offset="0.5" />
+                    <GradientStop Color="#66332F26" Offset="1" />
+                </LinearGradientBrush>
+            </Rectangle.Fill>
+        </Rectangle>
+        <Rectangle x:Name="VeilSide">
+            <Rectangle.Fill>
+                <LinearGradientBrush StartPoint="1,0" EndPoint="0,0">
+                    <GradientStop Color="#2E3A382C" Offset="0" />
+                    <GradientStop Color="#103A382C" Offset="0.5" />
+                    <GradientStop Color="#2E3A382C" Offset="1" />
+                </LinearGradientBrush>
+            </Rectangle.Fill>
+        </Rectangle>
+
+        <Grid x:Name="Client">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="48" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Top chips over the art (back / settings). -->
+            <Grid Grid.Row="0">
+                <Button x:Name="BackChip"
+                        Style="{StaticResource CageChipButtonStyle}"
+                        HorizontalAlignment="Left"
+                        Margin="52,0,0,0"
+                        AutomationProperties.Name="Back"
+                        Click="BackChip_Click">
+                    <FontIcon Glyph="&#xE72B;" FontSize="13" />
+                </Button>
+                <Button x:Name="SettingsChip"
+                        Style="{StaticResource CageChipButtonStyle}"
+                        HorizontalAlignment="Left"
+                        Margin="14,0,0,0"
+                        AutomationProperties.Name="Settings"
+                        Click="SettingsChip_Click">
+                    <FontIcon Glyph="&#xE713;" FontSize="13" />
+                </Button>
+            </Grid>
+
+            <Grid Grid.Row="1" Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="0.10*" />
+                    <ColumnDefinition Width="0.80*" />
+                    <ColumnDefinition Width="0.10*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Main cream card. -->
+                <Border x:Name="MainCard"
+                        Grid.Column="1"
+                        Background="{StaticResource CageCardBrush}"
+                        BorderBrush="{StaticResource CageCardBorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="12">
+                    <Grid Margin="30,20,30,20">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <!-- Header -->
+                        <StackPanel x:Name="HeaderHost" Grid.Row="0">
+                            <StackPanel.RenderTransform>
+                                <TranslateTransform x:Name="HeaderShift" Y="0" />
+                            </StackPanel.RenderTransform>
+                            <TextBlock x:Name="TitleText"
+                                       Style="{StaticResource CageTitleStyle}"
+                                       Text="Check your PC" />
+                            <TextBlock x:Name="SubtitleText"
+                                       Style="{StaticResource CageSubtitleStyle}"
+                                       Margin="0,4,40,6" />
+                        </StackPanel>
+
+                        <!-- Body: step pages left, emblem right. -->
+                        <Grid Grid.Row="1" Margin="0,6,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="64*" />
+                                <ColumnDefinition Width="36*" />
+                            </Grid.ColumnDefinitions>
+
+                            <Frame x:Name="StepsFrame"
+                                   Grid.Column="0"
+                                   Background="Transparent">
+                                <Frame.ContentTransitions>
+                                    <TransitionCollection>
+                                        <NavigationThemeTransition />
+                                    </TransitionCollection>
+                                </Frame.ContentTransitions>
+                            </Frame>
+
+                            <!-- Emblem block, shell level: stays on all steps. -->
+                            <Grid x:Name="EmblemStack"
+                                  Grid.Column="1"
+                                  Width="218"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Border Grid.Row="0"
+                                        Background="{ThemeResource CageEmblemMatBrush}"
+                                        BorderBrush="{ThemeResource CageEmblemMatBorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="3"
+                                        Padding="10">
+                                    <Image Source="ms-appx:///Assets/Lunar_Tear.png"
+                                           Stretch="Uniform" />
+                                </Border>
+                                <TextBlock Grid.Row="1"
+                                           Text="LUNAR TEAR"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           CharacterSpacing="230"
+                                           Foreground="{ThemeResource CageTextBrush}"
+                                           HorizontalAlignment="Center"
+                                           Margin="0,14,0,0" />
+                                <TextBlock Grid.Row="2"
+                                           Text="UNOFFICIAL FAN PROJECT"
+                                           FontSize="10"
+                                           FontWeight="SemiBold"
+                                           CharacterSpacing="150"
+                                           Foreground="{ThemeResource CageMutedBrush}"
+                                           HorizontalAlignment="Center"
+                                           Margin="0,4,0,0" />
+                            </Grid>
+                        </Grid>
+
+                        <!-- Card footer -->
+                        <TextBlock x:Name="CardFooterText"
+                                   Grid.Row="2"
+                                   FontSize="11.5"
+                                   Foreground="{ThemeResource CageMutedBrush}"
+                                   TextTrimming="CharacterEllipsis"
+                                   Margin="0,10,0,0" />
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <!-- Bottom card: hint, links, status, strip, log, primary action. -->
+            <Border Grid.Row="2"
+                    Margin="0,0,0,24"
+                    Background="{StaticResource CageCardBrush}"
+                    BorderBrush="{StaticResource CageCardBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="12">
+                <Grid Margin="30,14,30,14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <Grid Grid.Column="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock x:Name="HintText"
+                                   Grid.Row="0"
+                                   FontSize="12.5"
+                                   FontWeight="SemiBold"
+                                   Foreground="{ThemeResource CageBodyBrush}"
+                                   HorizontalAlignment="Center"
+                                   Text="Checking does not change anything on your PC."
+                                   Margin="0,2,0,0" />
+
+                        <StackPanel x:Name="LinksRow"
+                                    Grid.Row="1"
+                                    Orientation="Horizontal"
+                                    HorizontalAlignment="Center"
+                                    Visibility="Collapsed"
+                                    Margin="0,4,0,0">
+                            <HyperlinkButton x:Name="CheckAgainButton"
+                                             Style="{StaticResource CageLinkButtonStyle}"
+                                             Content="Check again"
+                                             Click="CheckAgainButton_Click" />
+                            <HyperlinkButton x:Name="ShowLogButton"
+                                             Style="{StaticResource CageLinkButtonStyle}"
+                                             Content="Show log"
+                                             Margin="32,0,0,0"
+                                             Click="ShowLogButton_Click" />
+                        </StackPanel>
+
+                        <TextBlock x:Name="StatusText"
+                                   Grid.Row="2"
+                                   FontSize="13.5"
+                                   Foreground="{ThemeResource CageTextBrush}"
+                                   HorizontalAlignment="Center"
+                                   Text="Step 1 of 6 &#xB7; Check your PC"
+                                   Margin="0,4,0,0" />
+
+                        <controls:StepStrip x:Name="StepStrip"
+                                            Grid.Row="3"
+                                            Height="17"
+                                            Margin="0,8,0,2" />
+
+                        <TextBox x:Name="LogBox"
+                                 Grid.Row="4"
+                                 Height="0"
+                                 IsReadOnly="True"
+                                 TextWrapping="Wrap"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 FontFamily="Consolas"
+                                 FontSize="11.5"
+                                 Foreground="{ThemeResource CageBodyBrush}"
+                                 Background="{ThemeResource CageSurfaceSoftBrush}"
+                                 BorderThickness="0"
+                                 Margin="0,8,0,0"
+                                 Visibility="Collapsed" />
+                    </Grid>
+
+                    <Button x:Name="PrimaryButton"
+                            Grid.Column="1"
+                            Style="{StaticResource CagePrimaryButtonStyle}"
+                            VerticalAlignment="Center"
+                            Margin="16,0,0,0"
+                            MinWidth="150"
+                            Click="PrimaryButton_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="9">
+                            <ProgressRing x:Name="ButtonRing"
+                                          Width="17"
+                                          Height="17"
+                                          IsActive="False"
+                                          Visibility="Collapsed" />
+                            <TextBlock x:Name="PrimaryLabel"
+                                       Text="Check PC"
+                                       FontSize="14"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- First-run splash: full window, name + what it does + the start
+             arrow. Sits above everything as a direct child of Root; the
+             shell grid (Client) is collapsed while it is visible. A
+             non-interactive veil rectangle keeps the background uniform
+             from top to bottom (pointer events fall through it). -->
+        <Grid x:Name="WelcomeHost"
+              Visibility="Collapsed">
+            <Rectangle Fill="#2B18140F"
+                       IsHitTestVisible="False" />
+            <!-- Soft radial scrim behind the copy instead of a box. -->
+            <Ellipse Width="980" Height="560"
+                     IsHitTestVisible="False">
+                <Ellipse.Fill>
+                    <RadialGradientBrush>
+                        <GradientStop Color="#B8120F0B" Offset="0" />
+                        <GradientStop Color="#70120F0B" Offset="0.55" />
+                        <GradientStop Color="#00120F0B" Offset="1" />
+                    </RadialGradientBrush>
+                </Ellipse.Fill>
+            </Ellipse>
+            <StackPanel MaxWidth="600"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="22">
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Center"
+                            Spacing="24">
+                    <Rectangle Width="70" Height="1" VerticalAlignment="Center"
+                               Fill="#8CEFE9D4" />
+                    <TextBlock Text="THE CAGE SETUP"
+                               FontFamily="Bahnschrift SemiBold"
+                               FontSize="36"
+                               CharacterSpacing="220"
+                               Foreground="{ThemeResource CageTextBrush}"
+                               VerticalAlignment="Center" />
+                    <Rectangle Width="70" Height="1" VerticalAlignment="Center"
+                               Fill="#8CEFE9D4" />
+                </StackPanel>
+                <TextBlock
+                    FontFamily="Bahnschrift Light"
+                    FontSize="16"
+                    LineHeight="26"
+                    Foreground="{ThemeResource CageBodyBrush}"
+                    TextWrapping="Wrap"
+                    TextAlignment="Center">
+                    <Run>A fan-made launcher for the </Run>
+                    <Hyperlink
+                        x:Name="LunarTearLink"
+                        Click="LunarTearLink_Click"
+                        UnderlineStyle="None"
+                        Foreground="{ThemeResource CageTextBrush}">
+                        <Run Text="Lunar Tear" />
+                    </Hyperlink>
+                    <Run> private server. It checks your PC, installs the emulator, downloads the game files and runs everything from one place.</Run>
+                </TextBlock>
+                <Button x:Name="WelcomeStartButton"
+                        Style="{StaticResource CagePrimaryButtonStyle}"
+                        MinWidth="104"
+                        Height="40"
+                        HorizontalAlignment="Center"
+                        Margin="0,6,0,0"
+                        AutomationProperties.Name="Get started"
+                        Click="WelcomeStartButton_Click">
+                    <FontIcon Glyph="&#xE72A;" FontSize="16" />
+                </Button>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

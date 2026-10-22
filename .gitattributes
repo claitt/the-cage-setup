@@ -1,4 +1,0 @@
-# The installer is a Windows PowerShell script: keep its line endings native
-* text=auto
-*.ps1 text eol=crlf
-*.md  text eol=lf

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The Cage Setup 2.0 palette, always dark (warm dark over the concept art).
+    Kept in a dedicated file: the WinUI XAML compiler rejects
+    MergedDictionaries + ThemeDictionaries + direct items in one
+    ResourceDictionary (WMC0035), so the styles stay in App.xaml
+    and the theme dictionaries live here.
+-->
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Constant brushes: the chips float over the concept art, which
+         is the same in both themes, so they stay light everywhere. -->
+    <SolidColorBrush x:Key="CageChipBrush" Color="#F2F4F0E6" />
+    <SolidColorBrush x:Key="CageChipFgBrush" Color="#2D2C24" />
+
+    <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+            <SolidColorBrush x:Key="CageCardBrush" Color="#2A2921" />
+            <SolidColorBrush x:Key="CageCardBorderBrush" Color="#403E31" />
+            <SolidColorBrush x:Key="CageSurfaceSoftBrush" Color="#35342A" />
+            <SolidColorBrush x:Key="CageTextBrush" Color="#EAE7DA" />
+            <SolidColorBrush x:Key="CageBodyBrush" Color="#B4B09E" />
+            <SolidColorBrush x:Key="CageMutedBrush" Color="#8B8878" />
+            <SolidColorBrush x:Key="CageAccentBrush" Color="#B0AB8E" />
+            <SolidColorBrush x:Key="CageAccentHoverBrush" Color="#C0BBA0" />
+            <SolidColorBrush x:Key="CageAccentPressedBrush" Color="#9F9A80" />
+            <SolidColorBrush x:Key="CageAccentSoftBrush" Color="#3B392C" />
+            <SolidColorBrush x:Key="CageOkBrush" Color="#A3B183" />
+            <SolidColorBrush x:Key="CageOkSoftBrush" Color="#343D2B" />
+            <SolidColorBrush x:Key="CageWarnBrush" Color="#D8B36A" />
+            <SolidColorBrush x:Key="CageWarnSoftBrush" Color="#3B3222" />
+            <SolidColorBrush x:Key="CageErrorBrush" Color="#D98D7C" />
+            <SolidColorBrush x:Key="CageErrorSoftBrush" Color="#3E2A24" />
+            <SolidColorBrush x:Key="CagePendingBrush" Color="#A29E8C" />
+            <SolidColorBrush x:Key="CagePendingSoftBrush" Color="#33312A" />
+            <SolidColorBrush x:Key="CageDividerBrush" Color="#3A392F" />
+            <SolidColorBrush x:Key="CageStepCurrentBrush" Color="#7A7562" />
+            <SolidColorBrush x:Key="CageStepIdleBrush" Color="#48463C" />
+            <SolidColorBrush x:Key="CageGoldBrush" Color="#C0A97A" />
+            <SolidColorBrush x:Key="CageLinkBrush" Color="#C9C3A6" />
+            <SolidColorBrush x:Key="CageEmblemMatBrush" Color="#33312A" />
+            <SolidColorBrush x:Key="CageEmblemMatBorderBrush" Color="#5A574A" />
+            <SolidColorBrush x:Key="CageVeilBrush" Color="#CC54503E" />
+            <Color x:Key="CageAccentHoverColor">#C0BBA0</Color>
+            <Color x:Key="CageAccentPressedColor">#9F9A80</Color>
+            <SolidColorBrush x:Key="CagePrimaryTextBrush" Color="#26251D" />
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

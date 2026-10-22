@@ -1,79 +1,10 @@
-# =====================================================================
-#  Nothing copyrighted must end up in the repository.
-#  The stock APK is downloaded from APKMirror and patched locally, the
-#  game assets come from archive.org and the master data is patched with
-#  the official lunar-scripts tool.
-# =====================================================================
-
-# Game content (never commit)
-apk/
-server/
-downloads/
-pacchetto/
-*.apk
-*.7z
-*.bin.e
-*bin.e.patched
-*bin.e.original
-*nier_aligned*
-*nier-patched*
-*nier-unaligned*
-*nier-aligned*
-*nierspww*
-client-nier-reincarnation-patched.apk
-
-# Toolchain downloaded on demand (never commit)
-tools/jdk/
-tools/jdk-*/
-tools/build-tools/
-tools/apktool.jar
-tools/python/
-tools/lunar-scripts/
-tools/aria2*/
-tools/android-sdk/
-tools/android-sdk-temp/
-tools/7zr.exe
-
-# Local clones of the upstream projects and unrelated scratch folders
-lunar-tear/
-lunar-scripts/
-ocr-extension/
-audio-analysis/
-archivio-emulatore-android-sdk/
-
-# Third party installers downloaded at runtime
-tools/mumu/*.exe
-tools/mumu/offline/
-tools/mumu/extract/
-tools/mumu/baseline/
-tools/mumu/inventario/
-tools/mumu/install-log.txt
-tools/mumu/INVENTARIO.md
-
-# Generated at runtime
-installer-log.txt
-installer-log.*.txt
-data-folder.txt
+bin/
+obj/
 dist/
-tools/mumu/inventory.txt
-tools/mumu/*.png
-tools/mumu/report-*.md
-tools/*.png
-*.idsig
-*.part
-*.keystore
-apk/out/.build.txt
-
-# Debug leftovers from development (not part of the installer)
-aehd_install.log
-af?.txt
-accesso-*.png
-analyze*.py
-emu-*.log
-emu-*.wav
-testtone*.wav
-mumu-landing.html
-screenshot.png
-sdklist.txt
-server-run*.log
-indagine-*.md
+*.user
+.vs/
+screenshot-winui*.png
+TestResults/
+state/
+downloads/
+lunar-tear-server.zip

@@ -1,3 +1,0 @@
-# The early commits used a second local identity for the same person.
-# This keeps `git shortlog` and `git log` coherent without rewriting history.
-claitt <claitt@users.noreply.github.com> 0cpp <0cpp@users.noreply.github.com>

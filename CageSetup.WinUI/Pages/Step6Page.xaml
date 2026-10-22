@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="CageSetup.WinUI.Pages.Step6Page"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CageSetup.WinUI.Controls">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Launch readiness rows. -->
+        <Grid x:Name="RowsHost" Grid.Row="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+        </Grid>
+
+        <!-- Shared action strip: launch/cancel/refresh. -->
+        <controls:ActionPanel x:Name="Actions" Grid.Row="1" />
+
+        <!-- Play mode only: re-open the installation wizard. -->
+        <Button x:Name="WizardButton"
+                Grid.Row="2"
+                Style="{ThemeResource CageSoftButtonStyle}"
+                Content="Re-run the installation wizard"
+                MinWidth="220"
+                HorizontalAlignment="Left"
+                Margin="0,16,0,0"
+                Visibility="Collapsed"
+                Click="WizardButton_Click" />
+    </Grid>
+</Page>

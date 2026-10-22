@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="CageSetup.WinUI.Controls.ActionPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <StackPanel>
+        <TextBlock x:Name="ActivityLabel"
+                   FontSize="12"
+                   Foreground="{ThemeResource CageBodyBrush}"
+                   TextTrimming="CharacterEllipsis" />
+
+        <ProgressBar x:Name="ProgressBar"
+                     Height="4"
+                     Minimum="0"
+                     Maximum="100"
+                     Visibility="Collapsed"
+                     Margin="0,8,4,0" />
+
+        <StackPanel Orientation="Horizontal" Margin="0,12,0,0" Spacing="12">
+            <Button x:Name="ActionButton"
+                    Style="{ThemeResource CagePrimaryButtonStyle}"
+                    MinWidth="170"
+                    Height="36"
+                    FontSize="12.5"
+                    Click="ActionButton_Click">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ProgressRing x:Name="BusyRing" Width="15" Height="15" Visibility="Collapsed" />
+                    <TextBlock x:Name="ActionLabelText" Text="Action" FontWeight="SemiBold" />
+                </StackPanel>
+            </Button>
+            <Button x:Name="CancelButton"
+                    Style="{ThemeResource CageSoftButtonStyle}"
+                    Content="Cancel"
+                    Visibility="Collapsed"
+                    Click="CancelButton_Click" />
+            <Button x:Name="SecondaryButton"
+                    Style="{ThemeResource CageSoftButtonStyle}"
+                    Visibility="Collapsed"
+                    Click="SecondaryButton_Click" />
+        </StackPanel>
+
+        <TextBlock x:Name="NoteLabel"
+                   FontSize="11"
+                   Foreground="{ThemeResource CageMutedBrush}"
+                   TextWrapping="Wrap"
+                   MaxLines="2"
+                   Margin="0,10,12,0"
+                   Visibility="Collapsed" />
+    </StackPanel>
+</UserControl>
