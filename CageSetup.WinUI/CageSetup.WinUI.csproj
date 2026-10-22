@@ -24,12 +24,19 @@
     <Product>Lunar Tear - The Cage Setup</Product>
     <Authors>Lunar Tear</Authors>
     <SatelliteResourceLanguages>en;it;de;fr;ru;ja</SatelliteResourceLanguages>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <NoWarn>$(NoWarn);CA1416;CS0169;CS0649</NoWarn>
   </PropertyGroup>
 
-  <!-- Keep the self-contained payload lean; see trim-publish.ps1. -->
-  <Target Name="TrimUnusedRuntime" AfterTargets="Publish">
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\trim-publish.ps1&quot; -PublishDir &quot;$(PublishDir).&quot;" />
+  <!-- The Windows App SDK ships an AI/ONNX runtime that this app never
+       loads. Drop it before the single-file bundle is produced. -->
+  <Target Name="DropUnusedPayload" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(Filename)', '^(onnxruntime|onnxruntime_providers_shared|DirectML|Microsoft\.ML\.OnnxRuntime|Microsoft\.Windows\.AI.*|NPUDetect)$'))" />
+    </ItemGroup>
   </Target>
 
   <ItemGroup>
