@@ -1,8 +1,10 @@
 ﻿# The Cage Setup
 
-A guided Windows installer for the Lunar Tear private server. It sets up MuMu Player, the game files and the client, then starts the server and launches the game.
+Unofficial Windows setup for NieR Reincarnation, through the Lunar Tear private server. It installs MuMu Player, the game files and the client, then starts the server and launches the game.
 
-Fan-made, unofficial. The emulator setup uses Walter Sparrow's files.
+The emulator setup uses Walter Sparrow's files.
+
+[![Support on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/claitt)
 
 ## Requirements
 
