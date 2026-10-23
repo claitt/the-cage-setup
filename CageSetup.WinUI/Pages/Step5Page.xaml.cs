@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading;
@@ -98,6 +98,9 @@ namespace CageSetup.WinUI.Pages
         }
 
         public bool IsBusy => _busy;
+
+        /// <summary>Step is complete while the server answers on its ports.</summary>
+        public bool IsComplete => _state?.Running == true;
 
         public string SummaryText() =>
             _state != null ? _state.SummaryText() : "Detecting the server...";

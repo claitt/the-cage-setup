@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -114,6 +114,11 @@ namespace CageSetup.WinUI.Pages
         }
 
         public bool IsBusy => _busy;
+
+        /// <summary>Step is complete when all four game sources are ready.</summary>
+        public bool IsComplete =>
+            _state != null && _state.ServerFiles && _state.MasterPatched &&
+            _state.ClientApk != null && _state.GameAssets;
 
         public string SummaryText()
         {

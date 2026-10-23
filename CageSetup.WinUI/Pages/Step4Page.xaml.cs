@@ -97,6 +97,9 @@ namespace CageSetup.WinUI.Pages
 
         public bool IsBusy => _busy;
 
+        /// <summary>Step is complete once the client is installed on the instance.</summary>
+        public bool IsComplete => _state?.Game == true;
+
         public string SummaryText() =>
             _state != null ? _state.SummaryText() : "Detecting the game client...";
 

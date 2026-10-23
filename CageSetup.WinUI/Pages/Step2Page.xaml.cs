@@ -94,6 +94,9 @@ namespace CageSetup.WinUI.Pages
 
         public bool IsInstalling => _busy;
 
+        /// <summary>Step is complete once MuMu Player is installed.</summary>
+        public bool IsComplete => _state?.Installed == true;
+
         // ------------------------------------------------------------------
         // State
         // ------------------------------------------------------------------
@@ -102,7 +105,7 @@ namespace CageSetup.WinUI.Pages
         {
             if (_busy) return;
 
-            EmulatorState state = await Task.Run(() => Emulator.Detect(AppContext.BaseDirectory));
+            EmulatorState state = await Task.Run(() => Emulator.Detect(GameFiles.BaseDir));
             _state = state;
 
             string? dir = state.MuMuDir;
@@ -126,13 +129,13 @@ namespace CageSetup.WinUI.Pages
                     : CheckStatus.Unknown);
 
             ApplyRow(_rows[3],
-                state.OfflineInstallerPresent
-                    ? "OFFLINE package"
+                state.Installed ? "Not needed" :
+                    state.OfflineInstallerPresent ? "OFFLINE package"
                     : state.InstallerPresent ? "MuMu-installer.exe" : "Not downloaded",
-                state.OfflineInstallerPresent
-                    ? state.OfflineInstallerPath
+                state.Installed ? "MuMu Player is already installed"
+                    : state.OfflineInstallerPresent ? state.OfflineInstallerPath
                     : state.InstallerPresent ? state.InstallerPath : "Downloaded from api.mumuplayer.com",
-                state.InstallerPresent || state.OfflineInstallerPresent
+                state.Installed || state.InstallerPresent || state.OfflineInstallerPresent
                     ? CheckStatus.Ok : CheckStatus.Unknown);
 
             if (logReport)
@@ -193,7 +196,7 @@ namespace CageSetup.WinUI.Pages
         /// <summary>The 1.x Action-InstallMuMu flow.</summary>
         private async Task InstallPipelineAsync(Downloader.ReportDelegate report, CancellationToken ct)
         {
-            string baseDir = AppContext.BaseDirectory;
+            string baseDir = GameFiles.BaseDir;
             report(-1, "Detecting MuMu Player...");
             EmulatorState current = Emulator.Detect(baseDir);
             if (current.Installed)

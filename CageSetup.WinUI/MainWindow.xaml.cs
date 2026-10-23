@@ -340,7 +340,7 @@ namespace CageSetup.WinUI
         {
             if (page != null)
             {
-                page.StateChanged += UpdateCardTexts;
+                page.StateChanged += OnPageStateChanged;
             }
         }
 
@@ -348,7 +348,7 @@ namespace CageSetup.WinUI
         {
             if (page != null)
             {
-                page.StateChanged += UpdateCardTexts;
+                page.StateChanged += OnPageStateChanged;
             }
         }
 
@@ -356,7 +356,7 @@ namespace CageSetup.WinUI
         {
             if (page != null)
             {
-                page.StateChanged += UpdateCardTexts;
+                page.StateChanged += OnPageStateChanged;
             }
         }
 
@@ -364,7 +364,7 @@ namespace CageSetup.WinUI
         {
             if (page != null)
             {
-                page.StateChanged += UpdateCardTexts;
+                page.StateChanged += OnPageStateChanged;
             }
         }
 
@@ -372,7 +372,7 @@ namespace CageSetup.WinUI
         {
             if (page != null)
             {
-                page.StateChanged += UpdateCardTexts;
+                page.StateChanged += OnPageStateChanged;
             }
         }
 
@@ -641,6 +641,22 @@ private void UpdateCardTexts()
             }
         }
 
+        private void OnPageStateChanged()
+        {
+            UpdateCardTexts();
+            UpdateAction();
+        }
+
+        /// <summary>True when the page on screen reports its step as complete.</summary>
+        private bool PageIsComplete() => StepsFrame.Content switch
+        {
+            Step2Page p => p.IsComplete,
+            Step3Page p => p.IsComplete,
+            Step4Page p => p.IsComplete,
+            Step5Page p => p.IsComplete,
+            _ => false,
+        };
+
         private void UpdateAction()
         {
             bool pageBusy =
@@ -693,7 +709,19 @@ private void UpdateCardTexts()
             }
             else
             {
-                PrimaryLabel.Text = pageBusy ? "Working..." : "Back to step " + _step;
+                if (pageBusy)
+                {
+                    PrimaryLabel.Text = "Working...";
+                    PrimaryButton.IsEnabled = false;
+                }
+                else if (_step < 5 && PageIsComplete())
+                {
+                    PrimaryLabel.Text = "Continue to step " + (_step + 2);
+                }
+                else
+                {
+                    PrimaryLabel.Text = "Back to step " + _step;
+                }
                 if (pageBusy) PrimaryButton.IsEnabled = false;
             }
         }
@@ -786,7 +814,7 @@ private void UpdateCardTexts()
             UpdateAction();
 
             Step6Page page = new() { PlayMode = true };
-            page.StateChanged += UpdateCardTexts;
+            page.StateChanged += OnPageStateChanged;
             page.WizardRequested += OnWizardRequested;
             if (animate)
             {
@@ -981,9 +1009,13 @@ private void UpdateCardTexts()
                 if (_checked) NavigateStep(1, animate: true);
                 else RunChecks();
             }
+            else if (_step < 5 && PageIsComplete())
+            {
+                NavigateStep(_step + 1, animate: true);
+            }
             else
             {
-                NavigateStep(0, animate: true);
+                NavigateStep(_step - 1, animate: true);
             }
         }
 
