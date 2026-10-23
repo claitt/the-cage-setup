@@ -18,9 +18,11 @@ The build is not code-signed, so Windows SmartScreen shows an unknown-publisher 
 
 A portable `TheCageSetup.exe` is attached to the same release if you prefer no installation. Keep its file name: the single-file build looks up its bundled resources by its own name.
 
+Already have the game files? On step 3, **Choose local files** points the setup at a folder that already holds them, and the page shows where downloads go. The choice is saved in `settings.ini` next to the executable.
+
 ## Requirements
 
-- Windows 11, x64, administrator rights
+- Windows 11, x64, administrator rights (step 1 can restart the setup with elevation)
 - Virtualization enabled in firmware
 - About 65 GB free for the game assets (15 GB download, 49 GB extracted)
 
