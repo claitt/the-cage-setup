@@ -3,7 +3,9 @@
 ; build-winui.ps1 (the payload is read from dist\TheCageSetup\).
 
 #define AppName "The Cage Setup"
-#define AppVersion "2.0.0"
+#ifndef AppVersion
+  #define AppVersion "0.0.0"
+#endif
 #define AppExe "TheCageSetup.exe"
 
 [Setup]
@@ -30,9 +32,14 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.19041
-VersionInfoVersion=2.0.0.0
+VersionInfoVersion={#AppVersion}.0
 VersionInfoProductName={#AppName}
 VersionInfoDescription={#AppName} setup
+; Upgrades: same AppId, same default folder, previous choices kept.
+UsePreviousAppDir=yes
+UsePreviousTasks=yes
+UsePreviousGroup=yes
+CloseApplications=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

@@ -38,7 +38,9 @@ The output is a single self-contained executable in `dist\TheCageSetup\`.
 powershell -ExecutionPolicy Bypass -File .\build-installer.ps1
 ```
 
-Publishes the app and wraps it with [Inno Setup](https://jrsoftware.org/isinfo.php) 6 (`winget install JRSoftware.InnoSetup`). The result is `dist\installer\TheCageSetup-2.0.0-setup.exe`.
+Publishes the app and wraps it with [Inno Setup](https://jrsoftware.org/isinfo.php) 6 (`winget install JRSoftware.InnoSetup`). The result is `dist\installer\TheCageSetup-<version>-setup.exe`.
+
+The version comes from `<Version>` in the project file. The installer keeps a fixed `AppId`, so a newer build installs over the previous one and updates the existing entry instead of adding a second one.
 
 ## Tests
 
