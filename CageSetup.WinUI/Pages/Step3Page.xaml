@@ -9,6 +9,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- Game files status rows. -->
@@ -21,7 +22,16 @@
             </Grid.RowDefinitions>
         </Grid>
 
-        <!-- Shared action strip: progress, get/cancel/refresh. -->
-        <controls:ActionPanel x:Name="Actions" Grid.Row="1" />
+        <!-- Point the setup at a folder that already holds the files. -->
+        <Button x:Name="ChooseFolderButton"
+                Grid.Row="1"
+                Style="{ThemeResource CageSoftButtonStyle}"
+                Content="Choose local files"
+                HorizontalAlignment="Left"
+                Margin="0,10,0,0"
+                Click="ChooseFolderButton_Click" />
+
+        <!-- Shared action strip: progress, download/cancel/refresh. -->
+        <controls:ActionPanel x:Name="Actions" Grid.Row="2" />
     </Grid>
 </Page>

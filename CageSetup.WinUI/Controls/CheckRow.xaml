@@ -10,6 +10,7 @@
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="*" />
             <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
 
         <FontIcon x:Name="IconGlyph"
@@ -31,8 +32,16 @@
                        TextTrimming="CharacterEllipsis" />
         </StackPanel>
 
-        <Border x:Name="Pill"
+        <Button x:Name="ActionButton"
                 Grid.Column="2"
+                Style="{ThemeResource CageSoftButtonStyle}"
+                Visibility="Collapsed"
+                VerticalAlignment="Center"
+                Margin="0,0,12,0"
+                Click="ActionButton_Click" />
+
+        <Border x:Name="Pill"
+                Grid.Column="3"
                 CornerRadius="4"
                 Padding="9,3"
                 Background="{ThemeResource CagePendingSoftBrush}"

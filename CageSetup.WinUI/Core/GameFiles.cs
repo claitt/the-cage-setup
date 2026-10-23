@@ -81,8 +81,78 @@ namespace CageSetup.WinUI.Core
         // from 7-zip.org when missing so extraction keeps working.
         public const string SevenZipUrl = "https://www.7-zip.org/a/7zr.exe";
 
-        // ---- paths (mirror of $Paths, rooted next to the EXE like $Root) ----
-        public static string Root => AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
+        // ---- paths (mirror of $Paths, rooted next to the EXE by default) ----
+        // The root can be pointed at a folder that already holds the game
+        // files; the choice is saved in settings.ini next to the EXE.
+        private static string? _root;
+
+        public static string Root => _root ??= LoadRoot();
+
+        /// <summary>
+        /// Folder of the real executable. In a single-file build
+        /// AppContext.BaseDirectory points at the extraction folder under
+        /// %TEMP%, which is the wrong place for downloads and state.
+        /// </summary>
+        public static string BaseDir
+        {
+            get
+            {
+                string? exe = Environment.ProcessPath;
+                return !string.IsNullOrEmpty(exe)
+                    ? Path.GetDirectoryName(exe)!
+                    : AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
+            }
+        }
+
+        private static string SettingsPath => Path.Combine(BaseDir, "settings.ini");
+
+        private static string LoadRoot()
+        {
+            string baseDir = BaseDir;
+            try
+            {
+                if (!File.Exists(SettingsPath)) return baseDir;
+
+                foreach (string line in File.ReadAllLines(SettingsPath))
+                {
+                    int eq = line.IndexOf('=');
+                    if (eq <= 0) continue;
+                    if (!line[..eq].Trim().Equals("root", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    string value = line[(eq + 1)..].Trim().Trim('"');
+                    if (value.Length > 0 && Directory.Exists(value))
+                    {
+                        return Path.GetFullPath(value).TrimEnd(Path.DirectorySeparatorChar);
+                    }
+                }
+            }
+            catch
+            {
+                // Unreadable settings fall back to the folder next to the EXE.
+            }
+            return baseDir;
+        }
+
+        /// <summary>
+        /// Points the setup at <paramref name="path"/> and remembers it.
+        /// Used by "Choose local files" on step 3.
+        /// </summary>
+        public static void SetRoot(string path)
+        {
+            string full = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar);
+            _root = full;
+            try
+            {
+                File.WriteAllText(SettingsPath, "root=" + full + Environment.NewLine);
+            }
+            catch
+            {
+                // A read-only install folder must not break the current run.
+            }
+        }
 
         public static string Downloads => Path.Combine(Root, "downloads");
         public static string ToolsDir => Path.Combine(Root, "tools");

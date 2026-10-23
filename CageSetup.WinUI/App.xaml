@@ -38,76 +38,16 @@
 
             <!-- Round chip button (back / settings), Windows 11 style.
                  Colors are the constant chip brushes (over the art). -->
-            <Style x:Key="CageChipButtonStyle" TargetType="Button">
-                <Setter Property="Width" Value="30" />
-                <Setter Property="Height" Value="30" />
+            <Style x:Key="CageIconButtonStyle" TargetType="Button">
+                <Setter Property="Width" Value="36" />
+                <Setter Property="Height" Value="32" />
                 <Setter Property="Padding" Value="0" />
-                <Setter Property="CornerRadius" Value="15" />
-                <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="BorderBrush" Value="#2E2D2C24" />
-                <Setter Property="Background" Value="{StaticResource CageChipBrush}" />
-                <Setter Property="Foreground" Value="{StaticResource CageChipFgBrush}" />
-                <Setter Property="UseSystemFocusVisuals" Value="True" />
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="Button">
-                            <Grid RenderTransformOrigin="0.5,0.5">
-                                <Grid.RenderTransform>
-                                    <ScaleTransform x:Name="ChipScale" ScaleX="1" ScaleY="1" />
-                                </Grid.RenderTransform>
-                                <Border x:Name="BorderRoot"
-                                        Background="{TemplateBinding Background}"
-                                        BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}"
-                                        CornerRadius="{TemplateBinding CornerRadius}">
-                                    <ContentPresenter
-                                        Content="{TemplateBinding Content}"
-                                        ContentTemplate="{TemplateBinding ContentTemplate}"
-                                        Foreground="{TemplateBinding Foreground}"
-                                        FontFamily="{TemplateBinding FontFamily}"
-                                        FontSize="{TemplateBinding FontSize}"
-                                        HorizontalContentAlignment="Center"
-                                        VerticalContentAlignment="Center" />
-                                </Border>
-                                <VisualStateManager.VisualStateGroups>
-                                    <VisualStateGroup x:Name="CommonStates">
-                                        <VisualStateGroup.Transitions>
-                                            <VisualTransition GeneratedDuration="0:0:0.11" />
-                                        </VisualStateGroup.Transitions>
-                                        <VisualState x:Name="Normal" />
-                                        <VisualState x:Name="PointerOver">
-                                            <Storyboard>
-                                                <ColorAnimation Storyboard.TargetName="BorderRoot"
-                                                                Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)"
-                                                                To="#FFF7F6EF" Duration="0" />
-                                            </Storyboard>
-                                        </VisualState>
-                                        <VisualState x:Name="Pressed">
-                                            <Storyboard>
-                                                <ColorAnimation Storyboard.TargetName="BorderRoot"
-                                                                Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)"
-                                                                To="#FFEBE7DA" Duration="0" />
-                                                <DoubleAnimation Storyboard.TargetName="ChipScale"
-                                                                 Storyboard.TargetProperty="ScaleX"
-                                                                 To="0.93" Duration="0:0:0.08" />
-                                                <DoubleAnimation Storyboard.TargetName="ChipScale"
-                                                                 Storyboard.TargetProperty="ScaleY"
-                                                                 To="0.93" Duration="0:0:0.08" />
-                                            </Storyboard>
-                                        </VisualState>
-                                        <VisualState x:Name="Disabled">
-                                            <Storyboard>
-                                                <DoubleAnimation Storyboard.TargetName="BorderRoot"
-                                                                 Storyboard.TargetProperty="Opacity"
-                                                                 To="0.4" Duration="0" />
-                                            </Storyboard>
-                                        </VisualState>
-                                    </VisualStateGroup>
-                                </VisualStateManager.VisualStateGroups>
-                            </Grid>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
+                <Setter Property="CornerRadius" Value="4" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="{ThemeResource CageTextBrush}" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
             </Style>
 
             <!-- Primary action: olive in light, warm cream-taupe in dark. -->

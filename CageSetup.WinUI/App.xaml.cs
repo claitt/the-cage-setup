@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
+using CageSetup.WinUI.Core;
 using Microsoft.UI.Xaml;
 
 namespace CageSetup.WinUI
@@ -12,6 +13,10 @@ namespace CageSetup.WinUI
     {
         private MainWindow? _window;
         private Mutex? _instanceMutex;
+
+        /// <summary>The shell window, for pages that need a window handle
+        /// (folder pickers and similar WinRT interop).</summary>
+        public static MainWindow? Shell { get; private set; }
 
         public App()
         {
@@ -38,6 +43,7 @@ namespace CageSetup.WinUI
                 }
 
                 _window = new MainWindow();
+                Shell = _window;
                 _window.Activate();
             }
             catch (Exception ex)
@@ -54,8 +60,7 @@ namespace CageSetup.WinUI
         /// </summary>
         private bool AcquireInstanceMutex()
         {
-            string path = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)
-                .ToLowerInvariant();
+            string path = GameFiles.BaseDir.ToLowerInvariant();
             byte[] bytes = Encoding.UTF8.GetBytes(path);
             using SHA256 sha = SHA256.Create();
             string hash = BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "");
@@ -74,7 +79,7 @@ namespace CageSetup.WinUI
         {
             try
             {
-                string path = Path.Combine(AppContext.BaseDirectory, "crash.txt");
+                string path = Path.Combine(GameFiles.BaseDir, "crash.txt");
                 File.WriteAllText(path,
                     "[" + source + "] " + DateTime.Now.ToString("HH:mm:ss") + Environment.NewLine +
                     ex.Message + Environment.NewLine + Environment.NewLine + ex);

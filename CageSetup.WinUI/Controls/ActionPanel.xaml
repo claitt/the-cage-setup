@@ -44,7 +44,7 @@
                    FontSize="11"
                    Foreground="{ThemeResource CageMutedBrush}"
                    TextWrapping="Wrap"
-                   MaxLines="2"
+                   MaxLines="4"
                    Margin="0,10,12,0"
                    Visibility="Collapsed" />
     </StackPanel>

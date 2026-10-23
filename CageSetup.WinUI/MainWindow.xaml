@@ -42,7 +42,7 @@
             <!-- Top chips over the art (back / settings). -->
             <Grid Grid.Row="0">
                 <Button x:Name="BackChip"
-                        Style="{StaticResource CageChipButtonStyle}"
+                        Style="{StaticResource CageIconButtonStyle}"
                         HorizontalAlignment="Left"
                         Margin="52,0,0,0"
                         AutomationProperties.Name="Back"
@@ -50,7 +50,7 @@
                     <FontIcon Glyph="&#xE72B;" FontSize="13" />
                 </Button>
                 <Button x:Name="SettingsChip"
-                        Style="{StaticResource CageChipButtonStyle}"
+                        Style="{StaticResource CageIconButtonStyle}"
                         HorizontalAlignment="Left"
                         Margin="14,0,0,0"
                         AutomationProperties.Name="Settings"

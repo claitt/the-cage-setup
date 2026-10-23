@@ -38,9 +38,8 @@ namespace CageSetup.WinUI.Pages
         {
             InitializeComponent();
 
-            Actions.ActionLabel = "Get the game files";
+            Actions.ActionLabel = "Download the files";
             Actions.Activity = "Every block is independent: a failure does not stop the others.";
-            Actions.Note = "Server binaries (GitHub, SHA256), master data (SHA1 + patcher), stock APK from APKMirror patched locally, game assets (14.9 GB download, 48.8 GB extracted).";
             Actions.SecondaryLabel = "Refresh state";
             Actions.ActionRequested += OnInstallRequested;
             Actions.CancelRequested += () => _cts?.Cancel();
@@ -50,7 +49,50 @@ namespace CageSetup.WinUI.Pages
             };
 
             BuildRows();
+            UpdateNote();
             _ = RefreshStateAsync(report: false);
+        }
+
+        private void UpdateNote()
+        {
+            Actions.Note =
+                "Server binaries (GitHub, SHA256), master data (SHA1 + patcher), stock APK from APKMirror patched locally, game assets (14.9 GB download, 48.8 GB extracted)." +
+                Environment.NewLine +
+                "Files are downloaded to " + GameFiles.Root;
+        }
+
+        private async void ChooseFolderButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_busy) return;
+
+            try
+            {
+                Windows.Storage.Pickers.FolderPicker picker = new()
+                {
+                    SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.ComputerFolder,
+                };
+                picker.FileTypeFilter.Add("*");
+
+                if (App.Shell == null)
+                {
+                    MainWindow.LogToWindow?.Invoke("Folder picker: window not available.");
+                    return;
+                }
+                IntPtr hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.Shell);
+                WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+
+                Windows.Storage.StorageFolder? folder = await picker.PickSingleFolderAsync();
+                if (folder == null) return;
+
+                GameFiles.SetRoot(folder.Path);
+                UpdateNote();
+                MainWindow.LogToWindow?.Invoke("Game files folder: " + folder.Path);
+                await RefreshStateAsync(report: false);
+            }
+            catch (Exception ex)
+            {
+                MainWindow.LogToWindow?.Invoke("Folder selection failed: " + ex.Message);
+            }
         }
 
         private void BuildRows()

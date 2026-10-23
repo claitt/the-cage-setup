@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -20,7 +20,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <Version>2.0.0</Version>
+    <Version>2.1.0</Version>
     <Product>Lunar Tear - The Cage Setup</Product>
     <Authors>Lunar Tear</Authors>
     <SatelliteResourceLanguages>en;it;de;fr;ru;ja</SatelliteResourceLanguages>

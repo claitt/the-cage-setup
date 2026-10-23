@@ -1,4 +1,4 @@
-# The Cage Setup
+﻿# The Cage Setup
 
 Unofficial Windows setup for NieR Reincarnation, through the Lunar Tear private server. It installs MuMu Player, the game files and the client, then starts the server and launches the game.
 
@@ -9,7 +9,7 @@ Unofficial Windows setup for NieR Reincarnation, through the Lunar Tear private 
 ## Download
 
 1. Open the [latest release](https://github.com/claitt/the-cage-setup/releases/latest).
-2. Download `TheCageSetup-2.0.0-setup.exe` and run it.
+2. Download the `TheCageSetup-<version>-setup.exe` from that page and run it.
 3. Choose the folder where game files may live. It defaults to `%LOCALAPPDATA%\Programs\The Cage Setup`; pick another drive if you need the ~65 GB elsewhere.
 
 The installer adds a Start Menu shortcut and an uninstaller. Installed game files are kept when you uninstall.

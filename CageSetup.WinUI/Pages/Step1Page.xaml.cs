@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using CageSetup.WinUI.Controls;
 using CageSetup.WinUI.Core;
 using Microsoft.UI.Xaml;
@@ -49,11 +51,16 @@ namespace CageSetup.WinUI.Pages
             }
 
             Rows = rows;
+            rows[1].ActionRequested += RestartElevated;
         }
 
         public void SetPendingAll()
         {
-            foreach (CheckRow row in Rows) row.SetPending();
+            foreach (CheckRow row in Rows)
+            {
+                row.HideAction();
+                row.SetPending();
+            }
         }
 
         public void ApplyResults(List<CheckResult> results)
@@ -62,6 +69,35 @@ namespace CageSetup.WinUI.Pages
             {
                 if (i < results.Count) Rows[i].SetResult(results[i]);
                 else Rows[i].SetPending();
+            }
+
+            // Offer the elevation shortcut only when it would help.
+            if (Rows[1].Status == CheckStatus.Ok) Rows[1].HideAction();
+            else Rows[1].ShowAction("Fix");
+        }
+
+        private void RestartElevated()
+        {
+            try
+            {
+                string? exe = Environment.ProcessPath;
+                if (string.IsNullOrEmpty(exe))
+                {
+                    MainWindow.LogToWindow?.Invoke("Restart as administrator: executable path unknown.");
+                    return;
+                }
+
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = exe,
+                    UseShellExecute = true,
+                    Verb = "runas",
+                });
+                Application.Current.Exit();
+            }
+            catch (Exception ex)
+            {
+                MainWindow.LogToWindow?.Invoke("Restart as administrator cancelled: " + ex.Message);
             }
         }
     }

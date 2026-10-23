@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,13 +19,13 @@ namespace CageSetup.WinUI
 {
     public partial class MainWindow : Window
     {
-        private readonly string _root = AppContext.BaseDirectory;
+        private readonly string _root = GameFiles.BaseDir;
 
         private static readonly string[] StepTitles =
         {
             "Check your PC",
             "Install the emulator",
-            "Get the game files",
+            "Download the files",
             "Install the game",
             "Start the server",
             "Launch the game",
@@ -605,7 +605,7 @@ private void UpdateCardTexts()
             }
             else if (_step == 2)
             {
-                StatusText.Text = "Step 3 of 6 \u00B7 Get the game files";
+                StatusText.Text = "Step 3 of 6 \u00B7 Download the files";
                 CardFooterText.Text = StepsFrame.Content is Step3Page step3
                     ? step3.SummaryText()
                     : "Detecting the game files...";
@@ -887,7 +887,7 @@ private void UpdateCardTexts()
 
         private async Task ShowSettingsDialogAsync()
         {
-            string root = AppContext.BaseDirectory;
+            string root = GameFiles.Root;
 
             StackPanel content = new() { Spacing = 10 };
             content.Children.Add(new TextBlock

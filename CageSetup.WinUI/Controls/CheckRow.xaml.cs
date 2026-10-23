@@ -1,3 +1,4 @@
+using System;
 using CageSetup.WinUI.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -50,6 +51,26 @@ namespace CageSetup.WinUI.Controls
         }
 
         public CheckStatus Status => _status;
+
+        /// <summary>Raised when the optional fix action is clicked.</summary>
+        public event Action? ActionRequested;
+
+        /// <summary>Shows a small action button on the row (e.g. "Fix").</summary>
+        public void ShowAction(string text)
+        {
+            ActionButton.Content = text;
+            ActionButton.Visibility = Visibility.Visible;
+        }
+
+        public void HideAction()
+        {
+            ActionButton.Visibility = Visibility.Collapsed;
+        }
+
+        private void ActionButton_Click(object sender, RoutedEventArgs e)
+        {
+            ActionRequested?.Invoke();
+        }
 
         public void SetResult(CheckResult result)
         {
