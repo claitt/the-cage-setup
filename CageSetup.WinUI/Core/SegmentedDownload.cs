@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -14,10 +15,11 @@ using System.Threading.Tasks;
 namespace CageSetup.WinUI.Core
 {
     /// <summary>
-    /// Chunk bookkeeping for the segmented downloader: which 4 MB blocks
-    /// of the .part file are already on disk. The state file is a small
-    /// text header plus a base64 bitset, so a 15 GB download can resume
-    /// without a second copy of the data.
+    /// Chunk bookkeeping for the segmented downloader: which blocks of the
+    /// .part file are already on disk. The state file is a small text header
+    /// plus a base64 bitset, so a 15 GB download can resume without a second
+    /// copy of the data. The block size is stored in the header, so a map
+    /// written with an older block size still resumes.
     /// </summary>
     internal sealed class ChunkMap
     {
@@ -46,35 +48,46 @@ namespace CageSetup.WinUI.Core
 
         public bool IsDone(int index) => _done[index];
 
-        public static ChunkMap Load(string path, long chunkSize, long totalBytes)
+        public static ChunkMap Load(string path, long defaultChunkSize, long totalBytes)
         {
-            int count = (int)((totalBytes + chunkSize - 1) / chunkSize);
-            ChunkMap map = new(count, chunkSize, totalBytes);
+            ChunkMap empty = Create(defaultChunkSize, totalBytes);
             try
             {
-                if (!File.Exists(path)) return map;
+                if (!File.Exists(path)) return empty;
 
                 string[] lines = File.ReadAllLines(path);
-                if (lines.Length < 4 || lines[0] != Marker) return map;
-                if (!long.TryParse(lines[1], out long storedSize) || storedSize != chunkSize) return map;
-                if (!long.TryParse(lines[2], out long storedTotal) || storedTotal != totalBytes) return map;
+                if (lines.Length < 4 || lines[0] != Marker) return empty;
+                if (!long.TryParse(lines[1], out long storedChunk) || storedChunk <= 0) return empty;
+                if (!long.TryParse(lines[2], out long storedTotal) || storedTotal != totalBytes) return empty;
 
+                ChunkMap map = Create(storedChunk, totalBytes);
                 byte[] bits = Convert.FromBase64String(lines[3]);
-                if (bits.Length < (count + BitsPerByte - 1) / BitsPerByte) return map;
+                if (bits.Length < (map.Count + BitsPerByte - 1) / BitsPerByte) return empty;
 
-                for (int i = 0; i < count; i++)
+                for (int i = 0; i < map.Count; i++)
                 {
                     if ((bits[i >> BitShift] & (1 << (i & (BitsPerByte - 1)))) == 0) continue;
                     map._done[i] = true;
                     map.DoneBytes += map.LengthOf(i);
                 }
                 map.Loaded = true;
+                return map;
             }
             catch
             {
                 // A damaged state file only costs a restart of the download.
+                return empty;
             }
-            return map;
+        }
+
+        private static ChunkMap Create(long chunkSize, long totalBytes)
+        {
+            long count = (totalBytes + chunkSize - 1) / chunkSize;
+            if (count <= 0 || count > int.MaxValue)
+            {
+                throw new ArgumentOutOfRangeException(nameof(totalBytes));
+            }
+            return new ChunkMap((int)count, chunkSize, totalBytes);
         }
 
         /// <summary>Trusts the first <paramref name="bytes"/> as sequential
@@ -128,20 +141,22 @@ namespace CageSetup.WinUI.Core
     }
 
     /// <summary>
-    /// Range-based downloader for large files. It splits the file into
-    /// chunks and spreads them over several archive.org servers, because
-    /// a single node caps the speed per client. Falls back to the serial
-    /// downloader when the server does not support ranges.
+    /// Range-based downloader for large files. Chunks are pulled from a
+    /// shared queue by every connection, so a fast server gets more work
+    /// and a stalled one is retried elsewhere after a short cooldown. For
+    /// archive.org the chunks are spread over the CDN edge and the two
+    /// storage nodes, because a single node caps the speed per client.
     /// </summary>
     internal static class SegmentedDownload
     {
         internal const long ThresholdBytes = 32L * 1024 * 1024;
+        internal const long DefaultChunkSize = 4 * 1024 * 1024;
 
-        private const long ChunkSize = 4L * 1024 * 1024;
-        private const int WorkersPerSource = 4;
-        private const int SingleSourceWorkers = 8;
-        private const int MaxAttemptsPerChunk = 4;
+        private const int SlotsPerSource = 4;
+        private const int SingleSourceSlots = 8;
+        private const int MaxAttemptsPerChunk = 6;
         private const int BufferSize = 1024 * 1024;
+        private const int SaveEveryChunks = 32;
 
         private sealed class Probe
         {
@@ -155,26 +170,46 @@ namespace CageSetup.WinUI.Core
             public long TotalBytes { get; }
         }
 
+        private sealed class Source
+        {
+            private const double InitialSpeed = 1.5 * 1024 * 1024;
+
+            public Source(Uri uri, int slots)
+            {
+                Uri = uri;
+                Slots = new SemaphoreSlim(slots, slots);
+                Ewma = InitialSpeed;
+            }
+
+            public Uri Uri { get; }
+            public SemaphoreSlim Slots { get; }
+            public double Ewma { get; set; }
+            public long CooldownUntil { get; set; }
+            public int Failures { get; set; }
+        }
+
         /// <summary>
         /// Returns false when the source cannot be segmented (no range
         /// support or unknown size); the caller then downloads serially.
         /// </summary>
-        public static async Task<bool> TryDownloadAsync(
+        public static Task<bool> TryDownloadAsync(
             string url, string destination, string label, long totalBytes,
-            Downloader.ReportDelegate? report, CancellationToken ct)
+            Downloader.ReportDelegate? report, CancellationToken ct) =>
+            TryDownloadAsync(url, destination, label, totalBytes, report, ct, DefaultChunkSize);
+
+        internal static async Task<bool> TryDownloadAsync(
+            string url, string destination, string label, long totalBytes,
+            Downloader.ReportDelegate? report, CancellationToken ct, long chunkSize)
         {
             using HttpClient client = CreateClient();
 
             Probe? probe = await ProbeWithRetriesAsync(client, url, ct, attempts: 3);
 
             List<Uri> uris = new();
-            if (probe != null && probe.TotalBytes == totalBytes)
+            if (probe != null)
             {
+                if (probe.TotalBytes != totalBytes) return false;
                 uris.Add(probe.FinalUri);
-            }
-            else if (probe != null)
-            {
-                return false;
             }
 
             await AddArchiveMirrorsAsync(client, url, totalBytes, uris, ct);
@@ -187,7 +222,7 @@ namespace CageSetup.WinUI.Core
             if (sources.Count == 0) return false;
 
             string statePath = destination + ".state";
-            ChunkMap map = ChunkMap.Load(statePath, ChunkSize, totalBytes);
+            ChunkMap map = ChunkMap.Load(statePath, chunkSize, totalBytes);
             if (!map.Loaded && File.Exists(destination))
             {
                 long length = new FileInfo(destination).Length;
@@ -197,7 +232,7 @@ namespace CageSetup.WinUI.Core
                 }
                 else
                 {
-                    try { File.Delete(destination); } catch { }
+                    TryDelete(destination);
                 }
             }
 
@@ -209,12 +244,17 @@ namespace CageSetup.WinUI.Core
             file.SetLength(totalBytes);
             map.Save(statePath);
 
+            int slots = sources.Count > 1 ? SlotsPerSource : SingleSourceSlots;
+            List<Source> states = sources.Select(uri => new Source(uri, slots)).ToList();
+            int workers = states.Count * slots;
+
             long downloaded = map.DoneBytes;
             int nextChunk = -1;
-            int workers = sources.Count > 1 ? sources.Count * WorkersPerSource : SingleSourceWorkers;
+            ConcurrentQueue<int> retries = new();
+            int[] attempts = new int[map.Count];
 
             report?.Invoke(-1, label + ": " + sources.Count + " server(s), " + workers +
-                               " connections, " + Downloader.FormatSize(ChunkSize) + " chunks");
+                               " connections, " + Downloader.FormatSize(map.ChunkSize) + " chunks");
             if (map.DoneBytes > 0)
             {
                 report?.Invoke(-1, label + ": resuming at " + Downloader.FormatSize(map.DoneBytes));
@@ -226,48 +266,77 @@ namespace CageSetup.WinUI.Core
 
             long ReadProgress() => Interlocked.Read(ref downloaded);
 
-            async Task WorkAsync(Uri source)
+            int TakeIndex()
+            {
+                if (retries.TryDequeue(out int retry)) return retry;
+                int next = Interlocked.Increment(ref nextChunk);
+                return next < map.Count ? next : -1;
+            }
+
+            async Task WorkAsync(int workerIndex)
             {
                 byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
                 try
                 {
+                    if (workerIndex > 0) await Task.Delay(workerIndex * 75, linked.Token);
+
                     while (true)
                     {
                         linked.Token.ThrowIfCancellationRequested();
-                        int index = Interlocked.Increment(ref nextChunk);
-                        if (index >= map.Count) break;
+
+                        int index = TakeIndex();
+                        if (index < 0)
+                        {
+                            if (Interlocked.Read(ref downloaded) >= map.TotalBytes) break;
+                            await Task.Delay(200, linked.Token);
+                            continue;
+                        }
                         if (map.IsDone(index)) continue;
 
-                        long start = (long)index * ChunkSize;
                         long length = map.LengthOf(index);
+                        long start = (long)index * map.ChunkSize;
                         long end = start + length - 1;
+                        long startedTicks = Stopwatch.GetTimestamp();
 
-                        for (int attempt = 1; ; attempt++)
+                        Source source = await PickSourceAsync(states, linked.Token);
+                        try
                         {
-                            try
-                            {
-                                await FetchChunkAsync(
-                                    client, source, file, start, end, length, buffer, linked.Token);
-                                map.MarkDone(index);
-                                Interlocked.Add(ref downloaded, length);
-                                break;
-                            }
-                            catch (OperationCanceledException)
-                            {
-                                throw;
-                            }
-                            catch (Exception ex)
-                            {
-                                if (attempt >= MaxAttemptsPerChunk)
-                                {
-                                    throw new Exception("chunk " + index + " of " + Path.GetFileName(destination) +
-                                                        " failed: " + ex.Message, ex);
-                                }
-                                await Task.Delay(TimeSpan.FromSeconds(2 * attempt), linked.Token);
-                            }
-                        }
+                            await FetchChunkAsync(
+                                client, source.Uri, file, start, end, length, buffer, linked.Token);
 
-                        if (index % 16 == 0) map.Save(statePath);
+                            double seconds = (Stopwatch.GetTimestamp() - startedTicks) /
+                                             (double)Stopwatch.Frequency;
+                            double speed = seconds > 0 ? length / seconds : 0;
+                            source.Ewma = source.Ewma * 0.7 + speed * 0.3;
+                            source.Failures = 0;
+
+                            map.MarkDone(index);
+                            Interlocked.Add(ref downloaded, length);
+                            if (index % SaveEveryChunks == 0) map.Save(statePath);
+                        }
+                        catch (OperationCanceledException) when (linked.IsCancellationRequested)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            source.Failures++;
+                            source.CooldownUntil = Environment.TickCount64 +
+                                Math.Min(30000, 5000L * source.Failures);
+
+                            int failed = Interlocked.Increment(ref attempts[index]);
+                            if (failed >= MaxAttemptsPerChunk)
+                            {
+                                throw new Exception("chunk " + index + " failed " + failed +
+                                                    " times: " + ex.Message, ex);
+                            }
+
+                            retries.Enqueue(index);
+                        }
+                        finally
+                        {
+                            source.Slots.Release();
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -285,13 +354,9 @@ namespace CageSetup.WinUI.Core
                 }
             }
 
-            Task[] tasks = sources.Count > 1
-                ? sources.SelectMany(source => Enumerable.Range(0, WorkersPerSource)
-                        .Select(_ => Task.Run(() => WorkAsync(source), linked.Token)))
-                    .ToArray()
-                : Enumerable.Range(0, SingleSourceWorkers)
-                    .Select(_ => Task.Run(() => WorkAsync(sources[0]), linked.Token))
-                    .ToArray();
+            Task[] tasks = Enumerable.Range(0, workers)
+                .Select(index => Task.Run(() => WorkAsync(index), linked.Token))
+                .ToArray();
 
             Task monitor = MonitorAsync(report, label, ReadProgress, totalBytes, linked.Token);
 
@@ -329,6 +394,50 @@ namespace CageSetup.WinUI.Core
                 PooledConnectionLifetime = TimeSpan.FromMinutes(5),
             };
             return new HttpClient(handler) { Timeout = TimeSpan.FromHours(10) };
+        }
+
+        /// <summary>
+        /// Picks the fastest server with a free slot. A server that just
+        /// failed is skipped for a few seconds and the chunk is retried
+        /// on another one, so a stalled node cannot hold the download.
+        /// </summary>
+        private static async Task<Source> PickSourceAsync(
+            List<Source> sources, CancellationToken ct)
+        {
+            long noSourceSince = 0;
+
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                long now = Environment.TickCount64;
+
+                Source? best = null;
+                double bestScore = double.NegativeInfinity;
+                foreach (Source source in sources)
+                {
+                    if (source.CooldownUntil > now) continue;
+                    if (source.Slots.CurrentCount == 0) continue;
+
+                    if (source.Ewma > bestScore)
+                    {
+                        bestScore = source.Ewma;
+                        best = source;
+                    }
+                }
+
+                if (best != null && await best.Slots.WaitAsync(0, ct)) return best;
+
+                if (noSourceSince == 0)
+                {
+                    noSourceSince = now;
+                }
+                else if (now - noSourceSince > 120000)
+                {
+                    throw new Exception("no archive.org server is answering");
+                }
+
+                await Task.Delay(200, ct);
+            }
         }
 
         private static async Task<Probe?> ProbeWithRetriesAsync(
@@ -456,8 +565,9 @@ namespace CageSetup.WinUI.Core
             long start, long end, long length, byte[] buffer,
             CancellationToken ct)
         {
+            int timeoutSeconds = (int)Math.Min(120, Math.Max(30, length / (64 * 1024)));
             using CancellationTokenSource guard = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            guard.CancelAfter(TimeSpan.FromMinutes(5));
+            guard.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
 
             try
             {
@@ -491,7 +601,8 @@ namespace CageSetup.WinUI.Core
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
-                throw new IOException("no answer for bytes " + start + "-" + end + " within 5 minutes");
+                throw new IOException("no answer for bytes " + start + "-" + end +
+                                      " within " + timeoutSeconds + " seconds");
             }
         }
 
@@ -524,6 +635,18 @@ namespace CageSetup.WinUI.Core
                 report?.Invoke(
                     totalBytes > 0 ? now * 100.0 / totalBytes : -1,
                     Downloader.ProgressText(label, now, totalBytes, speed));
+            }
+        }
+
+        private static void TryDelete(string path)
+        {
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+            catch
+            {
+                // A leftover .part is harmless.
             }
         }
     }

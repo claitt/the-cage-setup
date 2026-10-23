@@ -83,6 +83,21 @@ namespace CageSetup.Tests
         }
 
         [Fact]
+        public void Load_KeepsTheChunkSizeFromTheState()
+        {
+            ChunkMap map = ChunkMap.Load(_state, Chunk, Total);
+            map.MarkDone(0);
+            map.Save(_state);
+
+            ChunkMap resumed = ChunkMap.Load(_state, Chunk / 4, Total);
+
+            Assert.True(resumed.Loaded);
+            Assert.Equal(Chunk, resumed.ChunkSize);
+            Assert.Equal(4, resumed.Count);
+            Assert.True(resumed.IsDone(0));
+        }
+
+        [Fact]
         public void CorruptedState_IsIgnored()
         {
             File.WriteAllText(_state, "not a chunk map");
