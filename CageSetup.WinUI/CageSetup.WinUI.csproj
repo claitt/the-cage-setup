@@ -20,7 +20,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <Version>2.1.1</Version>
+    <Version>2.1.2</Version>
     <Product>Lunar Tear - The Cage Setup</Product>
     <Authors>Lunar Tear</Authors>
     <SatelliteResourceLanguages>en;it;de;fr;ru;ja</SatelliteResourceLanguages>

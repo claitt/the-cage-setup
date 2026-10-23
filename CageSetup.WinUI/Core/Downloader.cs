@@ -95,6 +95,68 @@ namespace CageSetup.WinUI.Core
             using HttpClient client = new();
             client.Timeout = TimeSpan.FromHours(10);
 
+            bool segmented = false;
+            if (bytes >= SegmentedDownload.ThresholdBytes)
+            {
+                segmented = await SegmentedDownload.TryDownloadAsync(
+                    url, temp, label, bytes, report, ct);
+                if (!segmented && File.Exists(temp + ".state"))
+                {
+                    throw new Exception(
+                        "Segmented download is unavailable right now; retry later. The partial file is kept.");
+                }
+            }
+
+            if (!segmented)
+            {
+                await DownloadSerialAsync(client, url, temp, label, bytes, retries, report, ct);
+            }
+
+            ct.ThrowIfCancellationRequested();
+            long finalSize = File.Exists(temp) ? new FileInfo(temp).Length : 0;
+            if (bytes > 0 && finalSize != bytes)
+            {
+                throw new Exception("Incomplete download: " + finalSize + " of " + bytes + " bytes");
+            }
+
+            if (sha256.Length > 0)
+            {
+                report?.Invoke(-1, label + ": computing SHA256 (large files may take a while)...");
+                string hash = HashHelper.Sha256(temp);
+                if (!hash.Equals(sha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    TryDelete(temp);
+                    TryDelete(temp + ".state");
+                    throw new Exception("SHA256 mismatch (expected " + sha256 + ", got " + hash + "). File removed: please retry.");
+                }
+                report?.Invoke(-1, label + ": integrity verified (SHA256 ok)");
+            }
+            else if (sha1.Length > 0)
+            {
+                report?.Invoke(-1, label + ": computing SHA1...");
+                string hash = HashHelper.Sha1(temp);
+                if (!hash.Equals(sha1, StringComparison.OrdinalIgnoreCase))
+                {
+                    TryDelete(temp);
+                    TryDelete(temp + ".state");
+                    throw new Exception("SHA1 mismatch (expected " + sha1 + ", got " + hash + "). File removed: please retry.");
+                }
+                report?.Invoke(-1, label + ": integrity verified (SHA1 ok)");
+            }
+
+            File.Move(temp, destination, overwrite: true);
+            TryDelete(temp + ".state");
+            report?.Invoke(100, label + " completed: " + FormatSize(finalSize));
+        }
+
+        /// <summary>
+        /// One connection at a time, resumable with Range, for small files
+        /// and for servers that do not support segmented downloads.
+        /// </summary>
+        private static async Task DownloadSerialAsync(
+            HttpClient client, string url, string temp, string label, long bytes,
+            int retries, ReportDelegate? report, CancellationToken ct)
+        {
             for (int attempt = 1; attempt <= retries; attempt++)
             {
                 ct.ThrowIfCancellationRequested();
@@ -165,39 +227,18 @@ namespace CageSetup.WinUI.Core
 
                 await Task.Delay(Math.Min(20000, 3000 * attempt), ct);
             }
+        }
 
-            ct.ThrowIfCancellationRequested();
-            long finalSize = File.Exists(temp) ? new FileInfo(temp).Length : 0;
-            if (bytes > 0 && finalSize != bytes)
+        private static void TryDelete(string path)
+        {
+            try
             {
-                throw new Exception("Incomplete download: " + finalSize + " of " + bytes + " bytes");
+                if (File.Exists(path)) File.Delete(path);
             }
-
-            if (sha256.Length > 0)
+            catch
             {
-                report?.Invoke(-1, label + ": computing SHA256 (large files may take a while)...");
-                string hash = HashHelper.Sha256(temp);
-                if (!hash.Equals(sha256, StringComparison.OrdinalIgnoreCase))
-                {
-                    File.Delete(temp);
-                    throw new Exception("SHA256 mismatch (expected " + sha256 + ", got " + hash + "). File removed: please retry.");
-                }
-                report?.Invoke(-1, label + ": integrity verified (SHA256 ok)");
+                // A leftover .part or state file is harmless.
             }
-            else if (sha1.Length > 0)
-            {
-                report?.Invoke(-1, label + ": computing SHA1...");
-                string hash = HashHelper.Sha1(temp);
-                if (!hash.Equals(sha1, StringComparison.OrdinalIgnoreCase))
-                {
-                    File.Delete(temp);
-                    throw new Exception("SHA1 mismatch (expected " + sha1 + ", got " + hash + "). File removed: please retry.");
-                }
-                report?.Invoke(-1, label + ": integrity verified (SHA1 ok)");
-            }
-
-            File.Move(temp, destination, overwrite: true);
-            report?.Invoke(100, label + " completed: " + FormatSize(finalSize));
         }
 
         // ------------------------------------------------------------------
