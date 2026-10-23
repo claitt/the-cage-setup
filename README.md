@@ -9,12 +9,14 @@ Unofficial Windows setup for NieR Reincarnation, through the Lunar Tear private 
 ## Download
 
 1. Open the [latest release](https://github.com/claitt/the-cage-setup/releases/latest).
-2. Under Assets, download `TheCageSetup.exe`.
-3. Put it in a folder it can keep using, then run it. Nothing to install: game files and server data are created next to the executable.
+2. Download `TheCageSetup-2.0.0-setup.exe` and run it.
+3. Choose the folder where game files may live. It defaults to `%LOCALAPPDATA%\Programs\The Cage Setup`; pick another drive if you need the ~65 GB elsewhere.
 
-Keep the file name as it is. The single-file build looks up its bundled resources by its own name, so a renamed copy will not start.
+The installer adds a Start Menu shortcut and an uninstaller. Installed game files are kept when you uninstall.
 
 The build is not code-signed, so Windows SmartScreen shows an unknown-publisher warning. Choose "More info", then "Run anyway".
+
+A portable `TheCageSetup.exe` is attached to the same release if you prefer no installation. Keep its file name: the single-file build looks up its bundled resources by its own name.
 
 ## Requirements
 
@@ -28,7 +30,15 @@ The build is not code-signed, so Windows SmartScreen shows an unknown-publisher 
 powershell -ExecutionPolicy Bypass -File .\build-winui.ps1
 ```
 
-The output is a single self-contained executable in `dist\CageSetup2\`.
+The output is a single self-contained executable in `dist\TheCageSetup\`.
+
+## Installer
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build-installer.ps1
+```
+
+Publishes the app and wraps it with [Inno Setup](https://jrsoftware.org/isinfo.php) 6 (`winget install JRSoftware.InnoSetup`). The result is `dist\installer\TheCageSetup-2.0.0-setup.exe`.
 
 ## Tests
 
