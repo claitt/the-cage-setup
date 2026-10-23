@@ -2,7 +2,7 @@
 
 Unofficial Windows setup for NieR Reincarnation, through the Lunar Tear private server. It installs MuMu Player, the game files and the client, then starts the server and launches the game.
 
-![The Cage Setup, step 3](docs/screenshot.png)
+![The Cage Setup, step 3](docs/screenshot.png?v=2.1.1)
 
 [![Support on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/claitt)
 
