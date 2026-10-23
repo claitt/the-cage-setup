@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -50,14 +51,21 @@ namespace CageSetup.WinUI.Core
             bool client = await GetClientApk(report, ct);
             bool assets = await GetGameAssets(report, ct);
 
-            bool ok = server && master && client && assets;
+            List<string> failed = new();
+            if (!server) failed.Add("server binaries");
+            if (!master) failed.Add("master data");
+            if (!client) failed.Add("game client (APK)");
+            if (!assets) failed.Add("game assets");
+
+            bool ok = failed.Count == 0;
             if (ok)
             {
                 report(-1, "All game files are ready");
             }
             else
             {
-                report(-1, "Some game files could not be prepared: see the messages above");
+                report(-1, "Could not prepare: " + string.Join(", ", failed) +
+                           ". See Show log for details.");
             }
             return ok;
         }
@@ -272,6 +280,10 @@ namespace CageSetup.WinUI.Core
                 return false;
             }
 
+            // From here on the assets are being (re)written: a crash or a
+            // cancel must not leave a revisions folder that looks complete.
+            GameFiles.MarkAssetsPartial();
+
             // the master data is NOT inside the asset dump: protect it and
             // restore it afterwards
             string backup = Path.Combine(Path.GetTempPath(), "lunartear-master.bak");
@@ -285,6 +297,7 @@ namespace CageSetup.WinUI.Core
             {
                 await Downloader.Extract7zAsync(archive, GameFiles.AssetsDir,
                     "Extracting game assets (48.8 GB)", report, ct);
+                GameFiles.MarkAssetsComplete();
             }
             finally
             {

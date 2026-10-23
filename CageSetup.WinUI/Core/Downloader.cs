@@ -278,18 +278,93 @@ namespace CageSetup.WinUI.Core
         }
 
         /// <summary>
-        /// 7z extraction with 7zr.exe and its real percentage.
-        /// Downloads 7zr.exe when the shipped file is missing.
+        /// Ensures the x64 7-Zip engine. The bundled 7zr is x86 and decodes
+        /// on a single core, which turns a 49 GB extraction into a very long
+        /// wait; the x64 build in the "extra" package uses several cores.
+        /// Returns false when it cannot be prepared (the caller falls back).
+        /// </summary>
+        public static async Task<bool> EnsureSevenZip64Async(
+            ReportDelegate? report = null, CancellationToken ct = default)
+        {
+            if (File.Exists(GameFiles.SevenZip64)) return true;
+
+            try
+            {
+                if (!File.Exists(GameFiles.SevenZip))
+                {
+                    report?.Invoke(-1, "Toolchain: downloading 7-Zip (7zr)...");
+                    await SendDownloadAsync(GameFiles.SevenZipUrl, GameFiles.SevenZip, "7-Zip console 7zr",
+                        retries: 3, report: report, ct: ct);
+                }
+
+                string archive = Path.Combine(GameFiles.Downloads, "7z-extra.7z");
+                report?.Invoke(-1, "Toolchain: downloading the x64 7-Zip engine...");
+                await SendDownloadAsync(GameFiles.SevenZipExtraUrl, archive, "7-Zip x64",
+                    bytes: GameFiles.SevenZipExtraBytes, sha256: GameFiles.SevenZipExtraSha256,
+                    retries: 3, report: report, ct: ct);
+
+                string temp = Path.Combine(Path.GetTempPath(), "cage-7z-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(temp);
+                try
+                {
+                    string log = Path.Combine(temp, "extract.log");
+                    int code = await RunWithLogRedirectAsync(
+                        GameFiles.SevenZip,
+                        "x \"" + archive + "\" \"x64\\7za.exe\" -o\"" + temp + "\" -y -bso0 -bse1",
+                        report, TimeSpan.FromSeconds(1), log, ct);
+                    if (code != 0)
+                    {
+                        report?.Invoke(-1, "Toolchain: 7-Zip x64 extraction failed (code " + code + ").");
+                        return false;
+                    }
+
+                    string x64 = Path.Combine(temp, "x64", "7za.exe");
+                    if (!File.Exists(x64))
+                    {
+                        report?.Invoke(-1, "Toolchain: 7za.exe is missing from the package.");
+                        return false;
+                    }
+
+                    Directory.CreateDirectory(GameFiles.ToolsDir);
+                    File.Copy(x64, GameFiles.SevenZip64, overwrite: true);
+                    report?.Invoke(-1, "Toolchain: 7-Zip x64 ready");
+                    return true;
+                }
+                finally
+                {
+                    try { Directory.Delete(temp, recursive: true); } catch { }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                report?.Invoke(-1, "Toolchain: 7-Zip x64 unavailable (" + ex.Message + ").");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 7z extraction with the real percentage. Uses the x64 engine when
+        /// available and falls back to 7zr otherwise.
         /// </summary>
         public static async Task Extract7zAsync(
             string archive, string destination, string label,
             ReportDelegate? report = null, CancellationToken ct = default)
         {
-            if (!File.Exists(GameFiles.SevenZip))
+            string tool = GameFiles.SevenZip64;
+            if (!await EnsureSevenZip64Async(report, ct))
             {
-                report?.Invoke(-1, "Toolchain: downloading 7-Zip (7zr)...");
-                await SendDownloadAsync(GameFiles.SevenZipUrl, GameFiles.SevenZip, "7-Zip console 7zr",
-                    retries: 3, report: report, ct: ct);
+                if (!File.Exists(GameFiles.SevenZip))
+                {
+                    report?.Invoke(-1, "Toolchain: downloading 7-Zip (7zr)...");
+                    await SendDownloadAsync(GameFiles.SevenZipUrl, GameFiles.SevenZip, "7-Zip console 7zr",
+                        retries: 3, report: report, ct: ct);
+                }
+                tool = GameFiles.SevenZip;
+                report?.Invoke(-1, "Toolchain: using 7zr, the extraction will be slower.");
             }
             if (!File.Exists(archive))
             {
@@ -301,7 +376,7 @@ namespace CageSetup.WinUI.Core
             report?.Invoke(-1, label + " - starting (this can take several minutes)...");
 
             int code = await RunWithLogRedirectAsync(
-                GameFiles.SevenZip,
+                tool,
                 "x \"" + archive + "\" -o\"" + destination + "\" -y -bso0 -bse1 -bsp1",
                 report, TimeSpan.FromSeconds(2), log, ct);
 
@@ -405,7 +480,7 @@ namespace CageSetup.WinUI.Core
 
                     if (timeoutSeconds > 0 && elapsed != null && elapsed.Elapsed.TotalSeconds > timeoutSeconds)
                     {
-                        try { process.Kill(); } catch { }
+                        KillProcessTree(process);
                         throw new Exception("Timed out after " + timeoutSeconds + " seconds");
                     }
                 }
@@ -414,12 +489,31 @@ namespace CageSetup.WinUI.Core
             }
             catch (OperationCanceledException)
             {
-                // Cancel aborts the external tool too (7zr, apktool, sign...),
-                // like the 1.x cancel handling in Invoke-Tool.
-                try { process.Kill(); } catch { }
+                // Cancel aborts the external tool too (7z, apktool, sign...).
+                // The process tree matters: cmd.exe hosts the tool, and
+                // killing only cmd would leave 7z running in the background.
+                KillProcessTree(process);
                 throw;
             }
+            finally
+            {
+                KillProcessTree(process);
+            }
             return process.ExitCode;
+        }
+
+        private static void KillProcessTree(Process process)
+        {
+            try
+            {
+                if (process.HasExited) return;
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit(5000);
+            }
+            catch
+            {
+                // Already gone or not killable: nothing else to do.
+            }
         }
 
         /// <summary>Log tail (internal: covered by unit tests).</summary>

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using CageSetup.WinUI.Controls;
@@ -95,9 +96,74 @@ namespace CageSetup.WinUI.Pages
             }
         }
 
-        private void BuildRows()
+        /// <summary>Lets the user supply the APK when APKMirror is blocked.</summary>
+        private async Task PickApkAsync()
         {
-            RowsHost.Children.Clear();
+            if (_busy) return;
+
+            try
+            {
+                Windows.Storage.Pickers.FileOpenPicker picker = new()
+                {
+                    SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.Downloads,
+                };
+                picker.FileTypeFilter.Add(".apk");
+
+                if (App.Shell == null)
+                {
+                    MainWindow.LogToWindow?.Invoke("APK picker: window not available.");
+                    return;
+                }
+                IntPtr hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.Shell);
+                WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+
+                Windows.Storage.StorageFile? file = await picker.PickSingleFileAsync();
+                if (file == null) return;
+
+                string source = file.Path;
+                if (!ClientBuild.LooksLikeApk(source))
+                {
+                    MainWindow.LogToWindow?.Invoke("APK: the selected file is not a valid client APK.");
+                    return;
+                }
+
+                string hash = HashHelper.Sha256(source);
+                if (hash.Equals(GameFiles.ApkStockSha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(GameFiles.ApkStockFile)!);
+                    File.Copy(source, GameFiles.ApkStockFile, overwrite: true);
+                    MainWindow.LogToWindow?.Invoke(
+                        "APK: stock 3.7.1 verified (SHA256). Download the files to patch it.");
+                }
+                else
+                {
+                    ContentDialog dialog = new()
+                    {
+                        XamlRoot = XamlRoot,
+                        Title = "Use this APK as the patched client?",
+                        Content = "The file is not the stock 3.7.1 APK (checksum mismatch). " +
+                                  "If it is already patched, it can be used directly and the automatic build is skipped.",
+                        PrimaryButtonText = "Use as patched",
+                        CloseButtonText = "Cancel",
+                        DefaultButton = ContentDialogButton.Close,
+                    };
+                    if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+                    Directory.CreateDirectory(GameFiles.ApkOutDir);
+                    File.Copy(source, GameFiles.ApkOutput, overwrite: true);
+                    MainWindow.LogToWindow?.Invoke("APK: using the selected file as the patched client.");
+                }
+
+                await RefreshStateAsync(report: false);
+            }
+            catch (Exception ex)
+            {
+                MainWindow.LogToWindow?.Invoke("APK selection failed: " + ex.Message);
+            }
+        }
+
+        private void BuildRows()
+        {            RowsHost.Children.Clear();
             _rows.Clear();
             for (int i = 0; i < RowSpec.Length; i++)
             {
@@ -111,6 +177,10 @@ namespace CageSetup.WinUI.Pages
                 RowsHost.Children.Add(row);
                 _rows.Add(row);
             }
+
+            // APKMirror is behind a browser challenge: let the user pick a
+            // stock APK already downloaded in the browser, or a patched one.
+            _rows[2].ActionRequested += () => _ = PickApkAsync();
         }
 
         public bool IsBusy => _busy;
@@ -154,6 +224,9 @@ namespace CageSetup.WinUI.Pages
                 state.ClientApk != null ? "Patched" : "Not built",
                 state.ClientApk ?? "APKMirror stock APK, patched locally",
                 state.ClientApk != null ? CheckStatus.Ok : CheckStatus.Unknown);
+
+            if (state.ClientApk == null) _rows[2].ShowAction("Select APK");
+            else _rows[2].HideAction();
 
             ApplyRow(_rows[3],
                 state.GameAssets ? "Present" : "Not downloaded",

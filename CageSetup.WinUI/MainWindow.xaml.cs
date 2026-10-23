@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using CageSetup.WinUI.Core;
@@ -730,12 +731,34 @@ private void UpdateCardTexts()
         // Log
         // ------------------------------------------------------------------
 
+        private static readonly object LogFileGate = new();
+
         private void Log(string message)
         {
             string line = "[" + DateTime.Now.ToString("HH:mm:ss") + "] " + message;
             LogBox.Text += line + Environment.NewLine;
             LogBox.SelectionStart = LogBox.Text.Length;
             LogBox.SelectionLength = 0;
+
+            // Keep a copy next to the EXE: the strip is lost when the window
+            // closes, and the interesting failures happen during long tasks.
+            try
+            {
+                lock (LogFileGate)
+                {
+                    string path = Path.Combine(GameFiles.BaseDir, "cage.log");
+                    FileInfo info = new(path);
+                    if (info.Exists && info.Length > 5 * 1024 * 1024)
+                    {
+                        File.Move(path, path + ".old", overwrite: true);
+                    }
+                    File.AppendAllText(path, line + Environment.NewLine);
+                }
+            }
+            catch
+            {
+                // Logging must never break the UI.
+            }
         }
 
         private void SetLogOpen(bool open)

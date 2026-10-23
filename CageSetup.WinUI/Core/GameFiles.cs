@@ -78,8 +78,19 @@ namespace CageSetup.WinUI.Core
         public const string AuthAddr = "10.0.2.2:3000";
 
         // 7-Zip standalone console: shipped with the 1.x package; downloaded
-        // from 7-zip.org when missing so extraction keeps working.
+        // from 7-zip.org when missing so extraction keeps working. The x64
+        // build in the "extra" package decodes on several cores (7zr is x86
+        // and single-threaded), which is what makes the 49 GB extraction fast.
         public const string SevenZipUrl = "https://www.7-zip.org/a/7zr.exe";
+        public const string SevenZipExtraUrl =
+            "https://github.com/ip7z/7zip/releases/download/26.05/7z2605-extra.7z";
+        public const long SevenZipExtraBytes = 1763900;
+        public const string SevenZipExtraSha256 =
+            "f27a8f103c84785026edcba1f67faf1357225df9d19ddb0b7760d55947141bc7";
+
+        // The extracted assets are about 48.8 GB; anything clearly smaller is
+        // a partial extraction from an older build (before the markers).
+        public const long AssetsCompleteBytes = 45L * 1024 * 1024 * 1024;
 
         // ---- paths (mirror of $Paths, rooted next to the EXE by default) ----
         // The root can be pointed at a folder that already holds the game
@@ -157,6 +168,7 @@ namespace CageSetup.WinUI.Core
         public static string Downloads => Path.Combine(Root, "downloads");
         public static string ToolsDir => Path.Combine(Root, "tools");
         public static string SevenZip => Path.Combine(ToolsDir, "7zr.exe");
+        public static string SevenZip64 => Path.Combine(ToolsDir, "7za.exe");
         public static string ServerDir => Path.Combine(Root, "server");
         public static string ServerExe => Path.Combine(ServerDir, "wizard.exe");
         public static string ServerBinDir => Path.Combine(ServerDir, "bin");
@@ -192,18 +204,100 @@ namespace CageSetup.WinUI.Core
             return candidates.FirstOrDefault(File.Exists);
         }
 
-        /// <summary>Test-GameAssets: a revision folder under assets\revisions.</summary>
+        /// <summary>Marker written only after a complete extraction. It lives
+        /// in state\ so the game server never sees it in the asset tree.</summary>
+        public static string AssetsDoneMarker => Path.Combine(Root, "state", "assets.done");
+
+        /// <summary>Marker written while an extraction is running; a partial
+        /// extraction must never count as ready.</summary>
+        public static string AssetsPartialMarker => Path.Combine(Root, "state", "assets.partial");
+
+        /// <summary>
+        /// Test-GameAssets: the revisions folder plus a completed extraction.
+        /// The marker is required because 7-Zip creates revisions early, so a
+        /// cancelled extraction used to look complete.
+        /// </summary>
         public static bool GameAssetsPresent()
         {
             string revisions = Path.Combine(AssetsDir, "revisions");
             if (!Directory.Exists(revisions)) return false;
+            if (File.Exists(AssetsDoneMarker)) return true;
+            if (File.Exists(AssetsPartialMarker)) return false;
+
+            // Install made before the markers existed: accept it only when the
+            // extracted size matches the expected content.
             try
             {
-                return Directory.GetDirectories(revisions).Length > 0;
+                if (DirectorySize(AssetsDir) >= AssetsCompleteBytes)
+                {
+                    MarkAssetsComplete();
+                    return true;
+                }
+                MarkAssetsPartial();
             }
             catch
             {
-                return false;
+                // Unreadable folder: treat it as not ready.
+            }
+            return false;
+        }
+
+        public static void MarkAssetsComplete()
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(AssetsDoneMarker)!);
+                File.WriteAllText(AssetsDoneMarker,
+                    DateTime.UtcNow.ToString("O") + Environment.NewLine + AssetsSha1 + Environment.NewLine);
+                TryDeleteFile(AssetsPartialMarker);
+                TryDeleteFile(Path.Combine(AssetsDir, ".cage-assets.done"));
+                TryDeleteFile(Path.Combine(AssetsDir, ".cage-assets.partial"));
+            }
+            catch
+            {
+                // The next check falls back to the size heuristic.
+            }
+        }
+
+        public static void MarkAssetsPartial()
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(AssetsPartialMarker)!);
+                File.WriteAllText(AssetsPartialMarker, DateTime.UtcNow.ToString("O") + Environment.NewLine);
+                TryDeleteFile(AssetsDoneMarker);
+                TryDeleteFile(Path.Combine(AssetsDir, ".cage-assets.done"));
+            }
+            catch
+            {
+                // A missing marker only means an extra size scan.
+            }
+        }
+
+        private static long DirectorySize(string folder)
+        {
+            long total = 0;
+
+            // DirectoryInfo carries the length from the directory
+            // enumeration; building a FileInfo per path costs ~3x more on a
+            // folder with 200k files.
+            foreach (FileInfo file in new DirectoryInfo(folder)
+                         .EnumerateFiles("*", SearchOption.AllDirectories))
+            {
+                total += file.Length;
+            }
+            return total;
+        }
+
+        private static void TryDeleteFile(string path)
+        {
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+            catch
+            {
+                // Harmless leftover.
             }
         }
 

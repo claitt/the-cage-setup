@@ -40,6 +40,8 @@ namespace CageSetup.WinUI.Core
             }
         }
 
+        public static bool LooksLikeApk(string path) => IsApkArchive(path);
+
         private static string? CurlExe()
         {
             string path = Environment.GetEnvironmentVariable("PATH") ?? "";
