@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using CageSetup.WinUI.Core;
@@ -152,6 +153,19 @@ namespace CageSetup.WinUI
                 }
             }
             if (HasArg(args, "--show-log")) _pendingLogOpen = true;
+            if (HasArg(args, "--smoke-test"))
+            {
+                // Build verification (build-winui.ps1): the shell and the
+                // initial page are loaded, so close the window and let the
+                // app shut down normally. Application.Exit() here tears the
+                // dispatcher down inside the Loaded event and WinUI reports
+                // a stowed exception.
+                Root.Loaded += (_, _) =>
+                {
+                    Log("Smoke test: the shell is loaded, closing.");
+                    DispatcherQueue.TryEnqueue(Close);
+                };
+            }
             if (HasArg(args, "--auto-check"))
             {
                 DispatcherQueue.TryEnqueue(async () =>
@@ -188,13 +202,24 @@ namespace CageSetup.WinUI
             try
             {
                 AppWindow appWindow = AppWindow;
-                SizeInt32 size = new(1120, 760);
-                appWindow.Resize(size);
-
+                double scale = DisplayScale();
                 DisplayArea area = DisplayArea.GetFromWindowId(appWindow.Id, DisplayAreaFallback.Primary);
-                int x = area.WorkArea.X + (area.WorkArea.Width - size.Width) / 2;
-                int y = area.WorkArea.Y + (area.WorkArea.Height - size.Height) / 2;
+                RectInt32 work = area.WorkArea;
+
+                // The requested size is in DIPs, AppWindow in physical pixels:
+                // without the scale the window is too small at 150% and can be
+                // taller than the work area on a 1366x768 panel.
+                int margin = (int)Math.Round(16 * scale);
+                (int width, int height, int x, int y) = WindowLayout.Fit(
+                    (int)Math.Round(WindowLayout.DefaultWidthDip * scale),
+                    (int)Math.Round(WindowLayout.DefaultHeightDip * scale),
+                    work.X, work.Y, work.Width, work.Height, margin);
+
+                appWindow.Resize(new SizeInt32(width, height));
                 appWindow.Move(new PointInt32(x, y));
+
+                Log("Window: " + width + "x" + height + " at " + x + "," + y +
+                    " (scale " + scale.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + ")");
 
                 string icon = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "Lunar_Tear.ico");
                 if (System.IO.File.Exists(icon)) appWindow.SetIcon(icon);
@@ -205,6 +230,24 @@ namespace CageSetup.WinUI
                 // default window is fine.
             }
         }
+
+        /// <summary>Rasterization scale of the window's monitor (1.0 = 96 DPI).</summary>
+        private double DisplayScale()
+        {
+            try
+            {
+                uint dpi = GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
+                if (dpi > 0) return dpi / 96.0;
+            }
+            catch
+            {
+                // The window handle is not ready yet: use the default scale.
+            }
+            return 1.0;
+        }
+
+        [DllImport("user32.dll")]
+        private static extern uint GetDpiForWindow(IntPtr hwnd);
 
         private void ApplyTitleBarTheme()
         {
@@ -254,8 +297,6 @@ namespace CageSetup.WinUI
 
             AnimateHeader();
             if (_step != 0 && _logOpen) SetLogOpen(false);
-            UpdateCardTexts();
-            UpdateAction();
 
             if (animate)
             {
@@ -335,6 +376,11 @@ namespace CageSetup.WinUI
                     WireStep6Events(page6);
                 }
             }
+
+            // After the frame holds the new page: the footer and the
+            // primary button read StepsFrame.Content.
+            UpdateCardTexts();
+            UpdateAction();
         }
 
         private void WireStep2Events(Step2Page? page)
@@ -383,27 +429,11 @@ namespace CageSetup.WinUI
             {
                 page.ApplyResults(_step1Results);
             }
-            if (StepsFrame.Content is Step2Page step2)
-            {
-                WireStep2Events(step2);
-            }
-            if (StepsFrame.Content is Step3Page step3)
-            {
-                WireStep3Events(step3);
-            }
-            if (StepsFrame.Content is Step4Page step4)
-            {
-                WireStep4Events(step4);
-            }
-            if (StepsFrame.Content is Step5Page step5)
-            {
-                WireStep5Events(step5);
-            }
-            if (StepsFrame.Content is Step6Page step6)
-            {
-                WireStep6Events(step6);
-            }
-            UpdateCardTexts();
+
+            // The step pages are wired where they are created (NavigateStep
+            // and NavigatePlay). Subscribing here as well doubled every
+            // StateChanged notification, because Frame.Navigate raises this
+            // event before NavigateStep reaches its own WireStepXxx call.
         }
 
         private void AnimateHeader()
@@ -833,8 +863,6 @@ private void UpdateCardTexts()
 
             AnimateHeader();
             if (_logOpen) SetLogOpen(false);
-            UpdateCardTexts();
-            UpdateAction();
 
             Step6Page page = new() { PlayMode = true };
             page.StateChanged += OnPageStateChanged;
@@ -844,6 +872,9 @@ private void UpdateCardTexts()
                 AnimateCard();
             }
             StepsFrame.Content = page;
+
+            UpdateCardTexts();
+            UpdateAction();
         }
 
         /// <summary>Requested "Re-run the installation wizard" in play mode.</summary>

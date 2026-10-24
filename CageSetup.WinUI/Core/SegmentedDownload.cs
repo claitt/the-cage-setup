@@ -152,6 +152,14 @@ namespace CageSetup.WinUI.Core
         internal const long ThresholdBytes = 32L * 1024 * 1024;
         internal const long DefaultChunkSize = 4 * 1024 * 1024;
 
+        /// <summary>
+        /// How long a source that just failed is skipped. It grows with the
+        /// consecutive failures so a dead node is not hammered, and is
+        /// capped at 30 seconds. Internal: covered by unit tests.
+        /// </summary>
+        internal static long CooldownMilliseconds(int failures) =>
+            Math.Min(30000, 5000L * Math.Max(1, failures));
+
         private const int SlotsPerSource = 4;
         private const int SingleSourceSlots = 8;
         private const int MaxAttemptsPerChunk = 6;
@@ -322,7 +330,7 @@ namespace CageSetup.WinUI.Core
                         {
                             source.Failures++;
                             source.CooldownUntil = Environment.TickCount64 +
-                                Math.Min(30000, 5000L * source.Failures);
+                                CooldownMilliseconds(source.Failures);
 
                             int failed = Interlocked.Increment(ref attempts[index]);
                             if (failed >= MaxAttemptsPerChunk)

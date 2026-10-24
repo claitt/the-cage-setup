@@ -5,7 +5,14 @@
 # Requires the .NET SDK (installed by this script if missing under
 # %USERPROFILE%\.dotnet) and network access to nuget.org on first build.
 # The output is a self-contained EXE - no runtime install needed - in
-# dist\winui\CageSetup2.exe.
+# dist\TheCageSetup\TheCageSetup.exe.
+#
+# After publishing, the EXE is started once with --smoke-test: it must load
+# the shell and exit on its own. Pass -SkipSmokeTest for a headless machine.
+
+param(
+    [switch]$SkipSmokeTest
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -36,19 +43,50 @@ if (-not (Test-Path $published)) {
 $dist = Join-Path $root 'dist'
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
-# Kill leftovers whose working directory lives inside dist: an orphan
-# adb.exe child (started by a killed app) keeps dist un-deletable even
-# when its own executable lives outside the folder.
-foreach ($name in @('TheCageSetup', 'CageSetup2', 'adb', 'wizard', 'auth-server', 'octo-cdn', 'lunar-tear')) {
-    Get-Process -Name $name -ErrorAction SilentlyContinue |
-        Stop-Process -Force -ErrorAction SilentlyContinue
+# Only processes running from dist are stopped: the installed copy and its
+# private server must keep running. An orphan adb.exe is the one exception,
+# because the app leaves it with dist as its working directory and Windows
+# then refuses to delete the folder. adb is stateless: its server restarts
+# on demand.
+$distPrefix = $dist.TrimEnd('\') + '\'
+Get-Process -ErrorAction SilentlyContinue | ForEach-Object {
+    try {
+        if ($_.Path -and $_.Path.StartsWith($distPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+        }
+    }
+    catch {
+        # Protected processes cannot be inspected: not ours anyway.
+    }
 }
+Get-Process -Name 'adb' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 500
 
 if (Test-Path $dist\TheCageSetup) { Remove-Item $dist\TheCageSetup -Recurse -Force }
 Copy-Item $published $dist\TheCageSetup -Recurse
 
 $exe = Join-Path $dist 'TheCageSetup\TheCageSetup.exe'
+$version = (Get-Item $exe).VersionInfo.ProductVersion
 $size = [math]::Round((Get-Item $exe).Length / 1MB, 1)
-$total = [math]::Round((Get-ChildItem $dist\TheCageSetup -Recurse | Measure-Object Length -Sum).Sum / 1MB, 1)
-Write-Host "Built $exe (exe $size MB, folder $total MB)"
+Write-Host "Built $exe (version $version, exe $size MB)"
+
+if (-not $SkipSmokeTest) {
+    # A publish can succeed while the single-file bundle is missing a payload
+    # and the window never appears. --step 1 loads a real page; --smoke-test
+    # closes the window after the shell is loaded, so no interaction is needed.
+    $smoke = Start-Process -FilePath $exe -ArgumentList '--step', '1', '--smoke-test' `
+        -WorkingDirectory (Split-Path $exe) -PassThru
+
+    if (-not $smoke.WaitForExit(30000)) {
+        Stop-Process -Id $smoke.Id -Force -ErrorAction SilentlyContinue
+        throw 'Smoke test: the app did not exit within 30 seconds.'
+    }
+    if ($smoke.ExitCode -ne 0) {
+        throw "Smoke test: the app exited with code $($smoke.ExitCode)."
+    }
+
+    # The run writes its log next to the EXE; keep dist identical to publish.
+    Remove-Item (Join-Path $dist 'TheCageSetup\cage.log') -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $dist 'TheCageSetup\cage.log.old') -Force -ErrorAction SilentlyContinue
+    Write-Host 'Smoke test: the shell loaded and exited cleanly.'
+}
