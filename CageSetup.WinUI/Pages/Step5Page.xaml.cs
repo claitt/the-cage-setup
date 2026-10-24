@@ -121,13 +121,14 @@ namespace CageSetup.WinUI.Pages
             return state;
         }
 
-        private async Task RefreshStateAsync(bool report)
+        private async Task RefreshStateAsync(bool report, bool force = false)
         {
-            if (_busy) return;
+            if (_busy && !force) return;
 
             ServerState state = await Task.Run(DetectAsync);
             _state = state;
             ApplyRows(state);
+            if (state.Running) SetupState.MarkDone(5);   // backfill for the auto-resume
 
             bool running = await ServerRun.IsRunningAsync();
             Actions.ActionLabel = running ? "Restart the server" : "Start the server";
@@ -203,7 +204,7 @@ namespace CageSetup.WinUI.Pages
                     await Task.Delay(2000, _cts.Token);
                 }
                 await ServerRun.EnsureRunningAsync(GameFiles.ServerDir, report, _cts.Token);
-                await RefreshStateAsync(report: false);
+                await RefreshStateAsync(report: false, force: true);
             }
             catch (OperationCanceledException)
             {
@@ -238,7 +239,7 @@ namespace CageSetup.WinUI.Pages
                 {
                     Actions.Activity = "Warning: the server is still listening.";
                 }
-                await RefreshStateAsync(report: false);
+                await RefreshStateAsync(report: false, force: true);
             }
             catch (OperationCanceledException)
             {

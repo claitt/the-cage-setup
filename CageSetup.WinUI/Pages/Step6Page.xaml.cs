@@ -147,13 +147,14 @@ namespace CageSetup.WinUI.Pages
             return state;
         }
 
-        private async Task RefreshStateAsync(bool report)
+        private async Task RefreshStateAsync(bool report, bool force = false)
         {
-            if (_busy) return;
+            if (_busy && !force) return;
 
             LaunchState state = await Task.Run(DetectAsync);
             _state = state;
             ApplyRows(state);
+            if (state.ServerRunning) SetupState.MarkDone(5);
 
             // Play mode turns the secondary into a live stop shortcut.
             if (_playMode)
@@ -211,7 +212,7 @@ namespace CageSetup.WinUI.Pages
                 _busy = true;
                 Actions.SecondaryButtonEnabled = false;
                 await LaunchPipelineAsync(Actions.Report, _cts.Token);
-                await RefreshStateAsync(report: false);
+                await RefreshStateAsync(report: false, force: true);
             }
             catch (OperationCanceledException)
             {
@@ -277,7 +278,7 @@ namespace CageSetup.WinUI.Pages
                 {
                     Actions.Activity = "Warning: the server is still listening.";
                 }
-                await RefreshStateAsync(report: false);
+                await RefreshStateAsync(report: false, force: true);
             }
             catch (OperationCanceledException)
             {

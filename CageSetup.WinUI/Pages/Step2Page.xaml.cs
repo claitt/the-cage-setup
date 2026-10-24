@@ -101,9 +101,9 @@ namespace CageSetup.WinUI.Pages
         // State
         // ------------------------------------------------------------------
 
-        private async Task RefreshStateAsync(bool logReport)
+        private async Task RefreshStateAsync(bool logReport, bool force = false)
         {
-            if (_busy) return;
+            if (_busy && !force) return;
 
             EmulatorState state = await Task.Run(() => Emulator.Detect(GameFiles.BaseDir));
             _state = state;
@@ -167,7 +167,7 @@ namespace CageSetup.WinUI.Pages
                 _busy = true;
                 RefreshStateEnabled(false);
                 await InstallPipelineAsync(Actions.Report, _cts.Token);
-                await RefreshStateAsync(logReport: false);
+                await RefreshStateAsync(logReport: false, force: true);
             }
             catch (OperationCanceledException)
             {
@@ -184,6 +184,7 @@ namespace CageSetup.WinUI.Pages
                 _busy = false;
                 Actions.SetBusy(false);
                 RefreshStateEnabled(true);
+                if (_state?.Installed == true) Actions.ActionButtonEnabled = false;
                 StateChanged?.Invoke();
             }
         }

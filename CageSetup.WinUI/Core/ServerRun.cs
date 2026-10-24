@@ -200,6 +200,49 @@ namespace CageSetup.WinUI.Core
         }
 
         /// <summary>
+        /// The server's interactive wizard only asks once and stores its
+        /// choices in .wizard.json. On a fresh PC the file is missing, so
+        /// "wizard.exe --prefer-saved" exits immediately and the ports never
+        /// open. Write the MuMu profile (10.0.2.2, same ports as the APK
+        /// patch) before every start; an existing custom file is replaced
+        /// because the client patch in step 3 is built for these values.
+        /// </summary>
+        public static void EnsureWizardConfig(string serverDir, Downloader.ReportDelegate report)
+        {
+            string path = Path.Combine(serverDir, ".wizard.json");
+            try
+            {
+                if (File.Exists(path))
+                {
+                    string existing = File.ReadAllText(path);
+                    if (string.Equals(existing.Trim(), WizardConfigJson.Trim(), StringComparison.Ordinal))
+                    {
+                        return;
+                    }
+                }
+
+                File.WriteAllText(path, WizardConfigJson + Environment.NewLine);
+                report(-1, "Server: configured for MuMu (10.0.2.2, ports 8003/8080/3000)");
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Cannot write the server configuration: " + ex.Message);
+            }
+        }
+
+        private const string WizardConfigJson = """
+            {
+              "ip": "10.0.2.2",
+              "device": "emulator",
+              "detail": "android-studio",
+              "summary": "MuMu Player",
+              "grpc_port": 8003,
+              "cdn_port": 8080,
+              "auth_port": 3000
+            }
+            """;
+
+        /// <summary>
         /// Action-StartServer: checks the files, names port
         /// conflicts, starts wizard.exe --prefer-saved and waits up to 30
         /// seconds for the ports. Shared by step 5 (start/restart) and
@@ -212,6 +255,8 @@ namespace CageSetup.WinUI.Core
             {
                 throw new Exception("Server binaries are missing: step 3 fetches them first");
             }
+
+            EnsureWizardConfig(serverDir, report);
 
             report(-1, "Server: checking the status");
             if (await IsRunningAsync(force: true))

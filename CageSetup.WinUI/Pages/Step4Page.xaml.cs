@@ -126,13 +126,14 @@ namespace CageSetup.WinUI.Pages
             return state;
         }
 
-        private async Task RefreshStateAsync(bool report)
+        private async Task RefreshStateAsync(bool report, bool force = false)
         {
-            if (_busy) return;
+            if (_busy && !force) return;
 
             ClientState state = await Task.Run(DetectAsync);
             _state = state;
             ApplyRows(state);
+            if (state.Game) SetupState.MarkDone(4);   // backfill for the auto-resume
 
             if (report)
             {
@@ -196,7 +197,7 @@ namespace CageSetup.WinUI.Pages
                 _busy = true;
                 Actions.SecondaryButtonEnabled = false;
                 await InstallPipelineAsync(Actions.Report, _cts.Token);
-                await RefreshStateAsync(report: false);
+                await RefreshStateAsync(report: false, force: true);
             }
             catch (OperationCanceledException)
             {

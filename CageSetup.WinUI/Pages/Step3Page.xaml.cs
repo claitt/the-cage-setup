@@ -241,9 +241,9 @@ namespace CageSetup.WinUI.Pages
             row.SetResult(new CheckResult(row.Title, value, detail, status));
         }
 
-        private async Task RefreshStateAsync(bool report)
+        private async Task RefreshStateAsync(bool report, bool force = false)
         {
-            if (_busy) return;
+            if (_busy && !force) return;
             _state = await Task.Run(GameInstall.Detect);
             ApplyRows();
             if (_state.ServerFiles && _state.MasterPatched && _state.ClientApk != null && _state.GameAssets)
@@ -268,7 +268,7 @@ namespace CageSetup.WinUI.Pages
                 Actions.SecondaryButtonEnabled = false;
                 bool ok = await Task.Run(() => GameInstall.InstallAllAsync(Actions.Report, _cts.Token));
                 if (ok) SetupState.MarkDone(3);
-                await RefreshStateAsync(report: false);
+                await RefreshStateAsync(report: false, force: true);
                 _apkFailed = !ok && _state?.ClientApk == null;
                 ApplyRows();
             }
