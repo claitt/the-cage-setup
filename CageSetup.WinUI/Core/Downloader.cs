@@ -44,13 +44,25 @@ namespace CageSetup.WinUI.Core
             if (speed >= 0)
             {
                 detail += "  |  " + FormatSize(speed) + "/s";
-                if (speed > 0 && total > done)
+                if (total > done)
                 {
-                    double left = (total - done) / speed;
-                    detail += "  |  left " + TimeSpan.FromSeconds(left).ToString(@"mm\:ss");
+                    detail += speed > 0
+                        ? "  |  left " + FormatEta((total - done) / speed)
+                        : "  |  left --:--";
                 }
             }
             return detail;
+        }
+
+        private static string FormatEta(double seconds)
+        {
+            if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds > 359999)
+            {
+                return "--:--";
+            }
+
+            TimeSpan left = TimeSpan.FromSeconds(seconds);
+            return left.TotalHours >= 1 ? left.ToString(@"hh\:mm\:ss") : left.ToString(@"mm\:ss");
         }
 
         // ------------------------------------------------------------------
@@ -191,23 +203,22 @@ namespace CageSetup.WinUI.Core
                     byte[] buffer = new byte[1024 * 1024];
                     long done = existing;
                     var sw = Stopwatch.StartNew();
+                    SpeedMeter meter = new();
+                    meter.Reset(done);
                     double lastMs = 0;
-                    long lastBytes = done;
-                    double speed = 0;
 
                     int read;
                     while ((read = await stream.ReadAsync(buffer, ct)) > 0)
                     {
                         await output.WriteAsync(buffer, 0, read, ct);
                         done += read;
+                        meter.Add(done);
                         double ms = sw.Elapsed.TotalMilliseconds;
                         if (ms - lastMs >= 500)
                         {
-                            speed = (done - lastBytes) / ((ms - lastMs) / 1000.0);
                             lastMs = ms;
-                            lastBytes = done;
                             report?.Invoke(total > 0 ? done * 100.0 / total : -1,
-                                ProgressText(label, done, total, speed));
+                                ProgressText(label, done, total, meter.Speed));
                         }
                     }
 

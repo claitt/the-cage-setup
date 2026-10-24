@@ -504,8 +504,8 @@ namespace CageSetup.WinUI.Core
                     return;
                 }
 
-                string identifier = parts[1];
-                string file = parts[^1];
+                string identifier = Uri.UnescapeDataString(parts[1]);
+                string file = Uri.UnescapeDataString(parts[^1]);
 
                 using CancellationTokenSource guard = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 guard.CancelAfter(TimeSpan.FromSeconds(15));
@@ -610,9 +610,8 @@ namespace CageSetup.WinUI.Core
             Downloader.ReportDelegate? report, string label,
             Func<long> readProgress, long totalBytes, CancellationToken ct)
         {
-            Stopwatch watch = Stopwatch.StartNew();
-            double lastMs = 0;
-            long lastBytes = readProgress();
+            SpeedMeter meter = new();
+            meter.Reset(readProgress());
 
             while (!ct.IsCancellationRequested)
             {
@@ -626,15 +625,11 @@ namespace CageSetup.WinUI.Core
                 }
 
                 long now = readProgress();
-                double ms = watch.Elapsed.TotalMilliseconds;
-                double seconds = (ms - lastMs) / 1000.0;
-                double speed = seconds > 0 ? (now - lastBytes) / seconds : 0;
-                lastMs = ms;
-                lastBytes = now;
+                meter.Add(now);
 
                 report?.Invoke(
                     totalBytes > 0 ? now * 100.0 / totalBytes : -1,
-                    Downloader.ProgressText(label, now, totalBytes, speed));
+                    Downloader.ProgressText(label, now, totalBytes, meter.Speed));
             }
         }
 

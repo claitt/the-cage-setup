@@ -41,11 +41,13 @@ namespace CageSetup.WinUI.Core
         // content to 2030; used to tell an already-patched file from the original.
         public const string MasterPatchedSha1 = "DF6F4F1AC90466F940DDB3F18E1FA9627D5B9DFA";
 
-        // ---- game client: the STOCK apk is downloaded from APKMirror and
-        //      patched locally, so no game binary ships with this package ----
-        public const string ApkPageUrl =
-            "https://www.apkmirror.com/apk/square-enix-co-ltd/nier-reincarnation/" +
-            "nier-reincarnation-3-7-1-release/nier-reincarnation-3-7-1-2-android-apk-download/";
+        // ---- game client: the STOCK apk comes from the archive.org mirror
+        //      of the same APKMirror file (APKMirror now blocks automated
+        //      downloads), and is patched locally ----
+        public const string ApkStockUrl =
+            "https://archive.org/download/" +
+            "com.square_enix.android_googleplay.nierspww_3.7.1-152_minapi24arm64-v8anodpi_apkmirror.com/" +
+            "com.square_enix.android_googleplay.nierspww_3.7.1-152_minAPI24(arm64-v8a)(nodpi)_apkmirror.com.apk";
         public const long ApkStockBytes = 263571029;
         public const string ApkStockSha256 = "9ded0797ee607b6892b531ba3a02f4c4510774f5fe098ccada78ccff881c9209";
         public const string PackageName = "com.square_enix.android_googleplay.nierspww";

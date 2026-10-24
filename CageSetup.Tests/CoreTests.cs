@@ -43,6 +43,14 @@ namespace CageSetup.Tests
             Assert.Contains("Label", text);
             Assert.DoesNotContain("%", text);
         }
+
+        [Fact]
+        public void ProgressText_WithZeroSpeed_KeepsEtaPlaceholder()
+        {
+            string text = Downloader.ProgressText("Download", 100, 1000, 0);
+            Assert.Contains("0 B/s", text);
+            Assert.Contains("left --:--", text);
+        }
     }
 
     public class QuoteArgumentsTests

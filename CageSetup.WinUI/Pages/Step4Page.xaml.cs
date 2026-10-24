@@ -42,7 +42,7 @@ namespace CageSetup.WinUI.Pages
 
             Actions.ActionLabel = "Install the game";
             Actions.Activity = "Launches MuMu if needed, applies the debloat and installs the APK via ADB.";
-            Actions.Note = "The APK is patched in step 3 (APKMirror source). ADB talks to MuMu on 127.0.0.1:7555; the debloat removes only NetEase/MuMu components and is reversible (pm install-existing).";
+            Actions.Note = "The APK is patched in step 3 (archive.org source). ADB talks to MuMu on 127.0.0.1:7555; the debloat removes only NetEase/MuMu components and is reversible (pm install-existing).";
             Actions.SecondaryLabel = "Refresh state";
             Actions.ActionRequested += OnInstallRequested;
             Actions.CancelRequested += () => _cts?.Cancel();

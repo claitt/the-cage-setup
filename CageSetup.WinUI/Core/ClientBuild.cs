@@ -1,11 +1,7 @@
 ﻿using System;
-using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Net.Http;
-using System.Security.Cryptography;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -13,10 +9,10 @@ namespace CageSetup.WinUI.Core
 {
     /// <summary>
     /// Client build, ported from 05-client-build.ps1: the stock APK comes
-    /// from APKMirror (read with curl.exe, which .NET cannot scrape), gets
-    /// decompiled with apktool, patched with the official lunar-scripts
-    /// patcher, rebuilt, aligned, signed and verified. The toolchain is
-    /// downloaded on demand.
+    /// from the archive.org mirror of the APKMirror file (APKMirror blocks
+    /// automated downloads), gets decompiled with apktool, patched with the
+    /// official lunar-scripts patcher, rebuilt, aligned, signed and verified.
+    /// The toolchain is downloaded on demand.
     /// </summary>
     public static class ClientBuild
     {
@@ -42,35 +38,16 @@ namespace CageSetup.WinUI.Core
 
         public static bool LooksLikeApk(string path) => IsApkArchive(path);
 
-        private static string? CurlExe()
-        {
-            string path = Environment.GetEnvironmentVariable("PATH") ?? "";
-            foreach (string dir in path.Split(';', StringSplitOptions.RemoveEmptyEntries))
-            {
-                try
-                {
-                    string candidate = Path.Combine(dir.Trim(), "curl.exe");
-                    if (File.Exists(candidate)) return candidate;
-                }
-                catch
-                {
-                    // Skip malformed PATH entries.
-                }
-            }
-            string system = Path.Combine(Environment.SystemDirectory, "curl.exe");
-            return File.Exists(system) ? system : null;
-        }
-
-        private static string UserAgent() =>
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-            "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
-
         // ------------------------------------------------------------------
-        // Stock APK from APKMirror
+        // Stock APK from archive.org
         // ------------------------------------------------------------------
 
-        /// <summary>Get-ApkmirrorApk. Returns false on any failure.</summary>
-        public static async Task<bool> GetApkmirrorApk(
+        /// <summary>
+        /// The stock 3.7.1 APK is the same file APKMirror used to serve; the
+        /// archive.org item mirrors it byte for byte. APKMirror itself now
+        /// answers automated requests with a browser challenge.
+        /// </summary>
+        public static async Task<bool> GetStockApk(
             string destination, Downloader.ReportDelegate report, CancellationToken ct)
         {
             if (IsApkArchive(destination))
@@ -79,108 +56,13 @@ namespace CageSetup.WinUI.Core
                 return true;
             }
 
-            string? curl = CurlExe();
-            if (curl == null)
-            {
-                report(-1, "curl.exe not found. Windows 10 version 1803 or newer is required.");
-                return false;
-            }
-
-            report(-1, "Client: looking for the stock APK on APKMirror");
-            string ua = UserAgent();
-            string work = Path.Combine(Path.GetTempPath(), "lunartear-apk-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(work);
-            string jar = Path.Combine(work, "cookies.txt");
-
+            report(-1, "Client: downloading the stock APK from archive.org");
             try
             {
-                // 1) variant page -> "/.../download/?key=..."
-                string page1 = Path.Combine(work, "page1.html");
-                await RunCurlAsync(curl, ua, $"-s -L --compressed -A {ua} -c {jar} -b {jar} -o {page1}",
-                    GameFiles.ApkPageUrl, ct);
-                if (!File.Exists(page1))
-                {
-                    report(-1, "APKMirror is not reachable");
-                    return false;
-                }
-                string html = await File.ReadAllTextAsync(page1, ct);
-                Match m = Regex.Match(html, "href=\"([^\"]*?/download/\\?key=[^\"]+)\"");
-                if (!m.Success)
-                {
-                    report(-1, "download link not found on the APKMirror page (the page layout may have changed)");
-                    return false;
-                }
-                string step2Url = new Uri(new Uri(GameFiles.ApkPageUrl), m.Groups[1].Value.Replace("&amp;", "&")).AbsoluteUri;
-                report(-1, "Client: variant download page found");
-
-                // 2) download page -> "download.php?id=...&key=..."
-                string page2 = Path.Combine(work, "page2.html");
-                await RunCurlAsync(curl, ua, $"-s -L --compressed -A {ua} -e {GameFiles.ApkPageUrl} -c {jar} -b {jar} -o {page2}",
-                    step2Url, ct);
-                html = await File.ReadAllTextAsync(page2, ct);
-                m = Regex.Match(html, "href=\"([^\"]*?download\\.php\\?id=\\d+&(?:amp;)?key=[^\"]+)\"");
-                if (!m.Success)
-                {
-                    report(-1, "final download link not found on the APKMirror page");
-                    return false;
-                }
-                string step3Url = new Uri(new Uri(step2Url), m.Groups[1].Value.Replace("&amp;", "&")).AbsoluteUri;
-
-                // 3) the endpoint answers with a redirect to the CDN (1h validity)
-                string headers = Path.Combine(work, "headers.txt");
-                await RunCurlAsync(curl, ua, $"-s -D {headers} -o NUL --max-redirs 0 -A {ua} -e {step2Url} -c {jar} -b {jar}",
-                    step3Url, ct);
-                string? location = (await File.ReadAllLinesAsync(headers, ct))
-                    .FirstOrDefault(l => l.StartsWith("location:", StringComparison.OrdinalIgnoreCase));
-                if (location == null)
-                {
-                    report(-1, "the download endpoint did not return a redirect");
-                    return false;
-                }
-                string finalUrl = Regex.Replace(location, @"^location:\s*", "").Trim();
-                report(-1, "Client: direct download link obtained");
-
-                // 4) stream the APK to disk with progress
-                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-                string partial = destination + ".part";
-
-                using HttpClientHandler handler = new() { AllowAutoRedirect = true };
-                using HttpClient client = new(handler) { Timeout = TimeSpan.FromMinutes(60) };
-                using HttpRequestMessage request = new(HttpMethod.Get, finalUrl);
-                request.Headers.TryAddWithoutValidation("User-Agent", ua);
-                using HttpResponseMessage response =
-                    await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-                response.EnsureSuccessStatusCode();
-
-                long total = GameFiles.ApkStockBytes;
-                if (response.Content.Headers.ContentLength is long length && length > 0) total = length;
-
-                await using Stream stream = await response.Content.ReadAsStreamAsync(ct);
-                await using FileStream output = File.Create(partial);
-                byte[] buffer = new byte[1024 * 1024];
-                long done = 0;
-                var sw = Stopwatch.StartNew();
-                double lastMs = 0;
-                long lastBytes = 0;
-
-                int read;
-                while ((read = await stream.ReadAsync(buffer, ct)) > 0)
-                {
-                    await output.WriteAsync(buffer, 0, read, ct);
-                    done += read;
-                    double ms = sw.Elapsed.TotalMilliseconds;
-                    if (ms - lastMs >= 600)
-                    {
-                        double speed = (done - lastBytes) / ((ms - lastMs) / 1000.0);
-                        lastMs = ms;
-                        lastBytes = done;
-                        report?.Invoke(total > 0 ? done * 100.0 / total : -1,
-                            Downloader.ProgressText("Downloading the game client from APKMirror", done, total, speed));
-                    }
-                }
-
-                if (File.Exists(destination)) File.Delete(destination);
-                File.Move(partial, destination);
+                await Downloader.SendDownloadAsync(
+                    GameFiles.ApkStockUrl, destination, "Stock APK (3.7.1)",
+                    bytes: GameFiles.ApkStockBytes, sha256: GameFiles.ApkStockSha256,
+                    report: report, ct: ct);
             }
             catch (OperationCanceledException)
             {
@@ -188,12 +70,8 @@ namespace CageSetup.WinUI.Core
             }
             catch (Exception ex)
             {
-                report(-1, ex.Message);
+                report(-1, "Client: stock APK download failed: " + ex.Message);
                 return false;
-            }
-            finally
-            {
-                try { Directory.Delete(work, recursive: true); } catch { }
             }
 
             if (!IsApkArchive(destination))
@@ -202,34 +80,9 @@ namespace CageSetup.WinUI.Core
                 return false;
             }
 
-            string hash = HashHelper.Sha256(destination);
-            if (!hash.Equals(GameFiles.ApkStockSha256, StringComparison.OrdinalIgnoreCase))
-            {
-                File.Delete(destination);
-                report(-1, "Stock APK checksum mismatch: expected " + GameFiles.ApkStockSha256 +
-                           ", got " + hash + ". The file was removed, please retry.");
-                return false;
-            }
             report(-1, "Stock APK verified (SHA256)");
             report(-1, "Stock APK downloaded: " + new FileInfo(destination).Length / 1048576.0 + " MB");
             return true;
-        }
-
-        private static async Task RunCurlAsync(string curl, string ua, string args, string url, CancellationToken ct)
-        {
-            ProcessStartInfo psi = new()
-            {
-                FileName = curl,
-                // -A ua is part of args, but the UA contains no spaces risk:
-                // pass it quoted through the whole argument string.
-                Arguments = args.Replace(ua, "\"" + ua + "\"") + " \"" + url + "\"",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = false,
-                RedirectStandardError = true,
-            };
-            using Process process = Process.Start(psi)!;
-            await process.WaitForExitAsync(ct);
         }
 
         // ------------------------------------------------------------------
@@ -272,7 +125,7 @@ namespace CageSetup.WinUI.Core
             }
 
             // The stock APK is the most fragile step (upstream page): first.
-            if (!await GetApkmirrorApk(GameFiles.ApkStockFile, report, ct)) return false;
+            if (!await GetStockApk(GameFiles.ApkStockFile, report, ct)) return false;
 
             if (!await Toolchain.EnsureJdk(report, ct)) return false;
             if (!await Toolchain.EnsureApktool(report, ct)) return false;

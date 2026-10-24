@@ -34,7 +34,7 @@
 
         <Button x:Name="ActionButton"
                 Grid.Column="2"
-                Style="{ThemeResource CageSoftButtonStyle}"
+                Style="{StaticResource CageRowActionButtonStyle}"
                 Visibility="Collapsed"
                 VerticalAlignment="Center"
                 Margin="0,0,12,0"

@@ -10,7 +10,7 @@ namespace CageSetup.WinUI.Core
     /// <summary>
     /// Action-InstallGame: server binaries, master data, patched
     /// client APK and game assets. Every block fails independently, like
-    /// the 1.x installer (a broken APKMirror page must not stop the asset
+    /// the 1.x installer (a broken stock APK source must not stop the asset
     /// download); the aggregate result is reported at the end.
     /// </summary>
     public static class GameInstall

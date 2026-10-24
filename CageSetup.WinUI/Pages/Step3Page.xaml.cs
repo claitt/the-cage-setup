@@ -20,6 +20,7 @@ namespace CageSetup.WinUI.Pages
     {
         private GameInstall.GameState? _state;
         private bool _busy;
+        private bool _apkFailed;
         private CancellationTokenSource? _cts;
 
         /// <summary>Raised whenever the page state text changes.</summary>
@@ -57,7 +58,7 @@ namespace CageSetup.WinUI.Pages
         private void UpdateNote()
         {
             Actions.Note =
-                "Server binaries (GitHub, SHA256), master data (SHA1 + patcher), stock APK from APKMirror patched locally, game assets (14.9 GB download, 48.8 GB extracted)." +
+                "Server binaries (GitHub, SHA256), master data (SHA1 + patcher), stock APK from archive.org patched locally, game assets (14.9 GB download, 48.8 GB extracted)." +
                 Environment.NewLine +
                 "Files are downloaded to " + GameFiles.Root;
         }
@@ -96,7 +97,7 @@ namespace CageSetup.WinUI.Pages
             }
         }
 
-        /// <summary>Lets the user supply the APK when APKMirror is blocked.</summary>
+        /// <summary>Lets the user supply the APK when the archive.org download fails.</summary>
         private async Task PickApkAsync()
         {
             if (_busy) return;
@@ -154,6 +155,7 @@ namespace CageSetup.WinUI.Pages
                     MainWindow.LogToWindow?.Invoke("APK: using the selected file as the patched client.");
                 }
 
+                _apkFailed = false;
                 await RefreshStateAsync(report: false);
             }
             catch (Exception ex)
@@ -178,8 +180,8 @@ namespace CageSetup.WinUI.Pages
                 _rows.Add(row);
             }
 
-            // APKMirror is behind a browser challenge: let the user pick a
-            // stock APK already downloaded in the browser, or a patched one.
+            // If the stock APK cannot be downloaded (or the build fails), the
+            // row offers a file already downloaded in the browser.
             _rows[2].ActionRequested += () => _ = PickApkAsync();
         }
 
@@ -222,10 +224,10 @@ namespace CageSetup.WinUI.Pages
 
             ApplyRow(_rows[2],
                 state.ClientApk != null ? "Patched" : "Not built",
-                state.ClientApk ?? "APKMirror stock APK, patched locally",
+                state.ClientApk ?? "archive.org stock APK, patched locally",
                 state.ClientApk != null ? CheckStatus.Ok : CheckStatus.Unknown);
 
-            if (state.ClientApk == null) _rows[2].ShowAction("Select APK");
+            if (state.ClientApk == null && _apkFailed) _rows[2].ShowAction("Select APK");
             else _rows[2].HideAction();
 
             ApplyRow(_rows[3],
@@ -267,6 +269,8 @@ namespace CageSetup.WinUI.Pages
                 bool ok = await Task.Run(() => GameInstall.InstallAllAsync(Actions.Report, _cts.Token));
                 if (ok) SetupState.MarkDone(3);
                 await RefreshStateAsync(report: false);
+                _apkFailed = !ok && _state?.ClientApk == null;
+                ApplyRows();
             }
             catch (OperationCanceledException)
             {
