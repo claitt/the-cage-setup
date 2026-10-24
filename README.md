@@ -2,7 +2,7 @@
 
 Unofficial Windows setup for NieR Reincarnation, through the Lunar Tear private server. It installs MuMu Player, the game files and the client, then starts the server and launches the game.
 
-![The Cage Setup, step 3](docs/screenshot.png?v=2.1.1)
+![The Cage Setup, step 3](docs/screenshot.png?v=2.1.7)
 
 [![Support on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/claitt)
 
@@ -22,7 +22,8 @@ Already have the game files? On step 3, **Choose local files** points the setup 
 
 ## Requirements
 
-- Windows 11, x64, administrator rights (step 1 can restart the setup with elevation)
+- Windows 10 21H2 (build 19044) or later, or Windows 11, x64 (Windows 10 support requires testing)
+- Administrator rights for the MuMu install (step 1 can restart the setup with elevation)
 - Virtualization enabled in firmware
 - About 65 GB free for the game assets (15 GB download, 49 GB extracted)
 
