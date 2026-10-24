@@ -3,6 +3,7 @@
 ; build-winui.ps1 (the payload is read from dist\TheCageSetup\).
 
 #define AppName "The Cage Setup"
+#define DisplayName "The Cage"
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
@@ -25,7 +26,7 @@ OutputDir=..\dist\installer
 OutputBaseFilename=TheCageSetup-{#AppVersion}-setup
 SetupIconFile=..\CageSetup.WinUI\Assets\Lunar_Tear.ico
 UninstallDisplayIcon={app}\{#AppExe}
-UninstallDisplayName={#AppName}
+UninstallDisplayName={#DisplayName}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -47,12 +48,18 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
+[InstallDelete]
+; Older versions used the product name for the shortcut files. Remove
+; them so an in-place upgrade leaves one entry, named "The Cage".
+Type: files; Name: "{autodesktop}\The Cage Setup.lnk"
+Type: files; Name: "{group}\The Cage Setup.lnk"
+
 [Files]
 Source: "..\dist\TheCageSetup\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
+Name: "{group}\{#DisplayName}"; Filename: "{app}\{#AppExe}"
+Name: "{autodesktop}\{#DisplayName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#StringChange(DisplayName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent

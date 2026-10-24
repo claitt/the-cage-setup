@@ -290,7 +290,7 @@
                             Spacing="24">
                     <Rectangle Width="70" Height="1" VerticalAlignment="Center"
                                Fill="#8CEFE9D4" />
-                    <TextBlock Text="THE CAGE SETUP"
+                    <TextBlock Text="THE CAGE"
                                FontFamily="Bahnschrift SemiBold"
                                FontSize="36"
                                CharacterSpacing="220"
